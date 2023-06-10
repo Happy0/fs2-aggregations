@@ -4,19 +4,23 @@ import cats.effect.IO
 import fs2.Stream
 import fs2.aggregations.join.models.{JoinRecord, StreamSource}
 
-trait Fs2StreamJoiner[X, Y, CommitMetadata] {
+case class JoinedResult[X, Y, CommitMetadata](
+    value: (X, Y),
+    commitMetadata: CommitMetadata
+)
+
+trait Fs2StreamJoiner[X, Y, SourceCommitMetadata, StoreCommitMetadata] {
 
   def sinkToStore(
-      left: StreamSource[X, CommitMetadata],
-      right: StreamSource[Y, CommitMetadata]
+      left: StreamSource[X, SourceCommitMetadata],
+      right: StreamSource[Y, SourceCommitMetadata]
   ): Stream[IO, Unit]
-
-  def streamFromStore(): Stream[IO, (X, Y)]
+  def streamFromStore(): Stream[IO, JoinedResult[X, Y, StoreCommitMetadata]]
 
   def join(
-      left: StreamSource[X, CommitMetadata],
-      right: StreamSource[Y, CommitMetadata]
-  ): Stream[IO, (X, Y)] = {
+      left: StreamSource[X, SourceCommitMetadata],
+      right: StreamSource[Y, SourceCommitMetadata]
+  ): Stream[IO, JoinedResult[X, Y, StoreCommitMetadata]] = {
 
     val sink = sinkToStore(left, right)
     val source = streamFromStore()
@@ -24,7 +28,8 @@ trait Fs2StreamJoiner[X, Y, CommitMetadata] {
     source concurrently sink
   }
 }
+trait Fs2OneToOneJoiner[X, Y, CommitMetadata, StoreCommitMetadata]
+    extends Fs2StreamJoiner[X, Y, CommitMetadata, StoreCommitMetadata]
 
-trait Fs2OneToOneJoiner[X, Y, CommitMetadata] extends Fs2StreamJoiner[X, Y, CommitMetadata]
-
-trait Fs2OneToManyJoiner[X, Y, CommitMetadata] extends Fs2StreamJoiner[X, Y, CommitMetadata]
+trait Fs2OneToManyJoiner[X, Y, CommitMetadata, StoreCommitMetadata]
+    extends Fs2StreamJoiner[X, Y, CommitMetadata, StoreCommitMetadata]

@@ -3,8 +3,9 @@ package fs2.aggregations.join.dynamo
 import cats.effect.IO
 import fs2.Stream
 import dynosaur._
-import fs2.aggregations.join.Fs2OneToOneJoiner
+import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
 import fs2.aggregations.join.models.{JoinRecord, StreamSource}
+import fs2.kafka.CommittableOffset
 import meteor.{Client, DynamoDbType, KeyDef}
 import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Encoder}
@@ -16,14 +17,14 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 case class DynamoStoreConfig[X, Y](
     client: DynamoDbAsyncClient,
     tableName: String,
-    kafkaNotificationTable: String,
+    kafkaNotificationTopic: String,
     leftSchema: Codec[X],
     rightSchema: Codec[Y]
 )
 
 final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config: DynamoStoreConfig[X, Y]
-) extends Fs2OneToOneJoiner[X, Y, CommitMetadata] {
+) extends Fs2OneToOneJoiner[X, Y, CommitMetadata, CommittableOffset[IO]] {
 
   private val table: CompositeTable[IO, String, String] =
     CompositeTable[IO, String, String](
@@ -42,8 +43,8 @@ final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       isLeft: Boolean
   ): Stream[IO, Unit] =
     stream.source
-      .evalMap((x) => writeToTable(x, isLeft) as x)
-      .evalMap(stream.onStore)
+      .evalMap((x) => writeToTable(x, isLeft) as x.commitMetadata)
+      .through(stream.commitProcessed)
 
   override def sinkToStore(
       left: StreamSource[X, CommitMetadata],
@@ -54,6 +55,6 @@ final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
 
     leftSink concurrently rightSink
   }
-
-  override def streamFromStore(): fs2.Stream[IO, (X, Y)] = ???
+  override def streamFromStore()
+      : fs2.Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = ???
 }

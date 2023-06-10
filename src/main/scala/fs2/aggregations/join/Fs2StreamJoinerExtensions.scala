@@ -18,7 +18,7 @@ object Fs2StreamJoinerExtensions {
         right: Stream[IO, JoinRecord[Y, CommitMetadata]],
         joiner: Fs2OneToOneJoiner[X, Y, CommitMetadata],
         joinConfig: JoinConfig[X, Y, CommitMetadata]
-    ): Stream[IO, (X, Y)] = {
+    ): Stream[IO, JoinedResult[X,Y]] = {
       val leftSource =
         StreamSource[X, CommitMetadata](fs2Stream, joinConfig.keyLeft, joinConfig.onStoreLeft)
       val rightSource =
@@ -31,7 +31,7 @@ object Fs2StreamJoinerExtensions {
         right: Stream[IO, JoinRecord[Y, CommitMetadata]],
         joiner: Fs2OneToManyJoiner[X, Y, CommitMetadata],
         joinConfig: JoinConfig[X, Y, CommitMetadata]
-    ): Stream[IO, (X, Y)] = {
+    ): Stream[IO, JoinedResult[X,Y]] = {
 
       val leftSource =
         StreamSource[X, CommitMetadata](fs2Stream, joinConfig.keyLeft, joinConfig.onStoreLeft)

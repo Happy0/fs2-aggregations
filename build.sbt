@@ -31,6 +31,7 @@ libraryDependencies ++= Seq(
   "io.github.d2a4u" %% "meteor-dynosaur" % "1.0.59",
   "org.typelevel" %% "cats-effect" % "3.5.0",
   "co.fs2" %% "fs2-core" % "3.7.0",
+  "com.github.fd4s" %% "fs2-kafka" % "3.0.1"
 )
 
 // Here, `libraryDependencies` is a set of dependencies, and by using `+=`,
