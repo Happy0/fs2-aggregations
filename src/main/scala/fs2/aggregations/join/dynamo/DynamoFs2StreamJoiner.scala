@@ -34,7 +34,7 @@ final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       config.client
     )
 
-  private def writeToTable[Z](item: Z, isLeft: Boolean): IO[Unit] = {
+  private def writeToTable[Z](key: String, item: Z, isLeft: Boolean): IO[Unit] = {
     ???
   }
 
@@ -43,7 +43,7 @@ final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       isLeft: Boolean
   ): Stream[IO, Unit] =
     stream.source
-      .evalMap((x) => writeToTable(x, isLeft) as x.commitMetadata)
+      .evalMap((x) => writeToTable(stream.key(x.record), x, isLeft) as x.commitMetadata)
       .through(stream.commitProcessed)
 
   override def sinkToStore(
