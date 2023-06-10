@@ -34,17 +34,24 @@ final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       config.client
     )
 
-  private def writeToTable[Z](key: String, item: Z, isLeft: Boolean): IO[Unit] = {
+  private def writeToTable[Z](PK: String, SK: String, item: Z): IO[Unit] = {
+    ???
+  }
+  private def publishToKafka(PK: String, SK: String): IO[Unit] = {
     ???
   }
 
   private def sink[Z, CommitMetadata](
       stream: StreamSource[Z, CommitMetadata],
       isLeft: Boolean
-  ): Stream[IO, Unit] =
+  ): Stream[IO, Unit] = {
+    val SK = if (isLeft) "LEFT" else "RIGHT"
+
     stream.source
-      .evalMap((x) => writeToTable(stream.key(x.record), x, isLeft) as x.commitMetadata)
+      .evalMap((x) => writeToTable(stream.key(x.record), SK, x) as x)
+      .evalMap(x => publishToKafka(stream.key(x.record), SK) as x.commitMetadata)
       .through(stream.commitProcessed)
+  }
 
   override def sinkToStore(
       left: StreamSource[X, CommitMetadata],
