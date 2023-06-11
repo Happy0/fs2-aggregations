@@ -3,9 +3,10 @@ package fs2.aggregations.join.dynamo
 import cats.effect.IO
 import fs2.Stream
 import dynosaur._
+import fs2.aggregations.join.models.dynamo.DynamoRecord
 import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
 import fs2.aggregations.join.models.{JoinRecord, StreamSource}
-import fs2.kafka.CommittableOffset
+import fs2.kafka.{CommittableOffset, KafkaProducer}
 import meteor.{Client, DynamoDbType, KeyDef}
 import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Encoder}
@@ -18,13 +19,15 @@ case class DynamoStoreConfig[X, Y](
     client: DynamoDbAsyncClient,
     tableName: String,
     kafkaNotificationTopic: String,
-    leftSchema: Codec[X],
-    rightSchema: Codec[Y]
+    leftSchema: Schema[X],
+    rightSchema: Schema[Y]
 )
 
-final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
+final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config: DynamoStoreConfig[X, Y]
 ) extends Fs2OneToOneJoiner[X, Y, CommitMetadata, CommittableOffset[IO]] {
+
+  import DynamoRecord._
 
   private val table: CompositeTable[IO, String, String] =
     CompositeTable[IO, String, String](
@@ -34,8 +37,13 @@ final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       config.client
     )
 
-  private def writeToTable[Z](PK: String, SK: String, item: Z): IO[Unit] = {
-    ???
+  private def writeToTable[Z](PK: String, SK: String, item: Z)(implicit
+      itemCodec: Encoder[DynamoRecord[Z]]
+  ): IO[Unit] = {
+
+    val record = DynamoRecord[Z](PK, SK, item)
+
+    table.put(record)(itemCodec)
   }
   private def publishToKafka(PK: String, SK: String): IO[Unit] = {
     ???
@@ -45,11 +53,16 @@ final class DynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       stream: StreamSource[Z, CommitMetadata],
       isLeft: Boolean
   ): Stream[IO, Unit] = {
+
+    implicit val encoder: Encoder[DynamoRecord[Z]] = ???
+
     val SK = if (isLeft) "LEFT" else "RIGHT"
 
     stream.source
-      .evalMap((x) => writeToTable(stream.key(x.record), SK, x) as x)
-      .evalMap(x => publishToKafka(stream.key(x.record), SK) as x.commitMetadata)
+      .evalMap((x) => writeToTable(stream.key(x.record), SK, x.record) as x)
+      .evalMap(x =>
+        publishToKafka(stream.key(x.record), SK) as x.commitMetadata
+      )
       .through(stream.commitProcessed)
   }
 
