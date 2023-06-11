@@ -1,19 +1,21 @@
 package fs2.aggregations.join.dynamo
 
-import cats.effect.IO
+import cats.effect.{Async, IO}
 import fs2.Stream
 import dynosaur._
 import fs2.aggregations.join.models.dynamo.DynamoRecord
 import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
 import fs2.aggregations.join.models.{JoinRecord, StreamSource}
 import fs2.kafka.{CommittableOffset, KafkaProducer}
-import meteor.{Client, DynamoDbType, KeyDef}
+import meteor.{DynamoDbType, KeyDef}
 import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Encoder}
-import meteor._
-import meteor.codec.Codec.dynamoCodecFromEncoderAndDecoder
+
 import meteor.codec.Encoder.dynamoEncoderForString
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
+
+import scala.concurrent.duration.DurationInt
+
 
 case class DynamoStoreConfig[X, Y](
     client: DynamoDbAsyncClient,
@@ -46,7 +48,7 @@ final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     table.put(record)(itemCodec)
   }
   private def publishToKafka(PK: String, SK: String): IO[Unit] = {
-    ???
+    IO.println("I would be publishing to kafka here")
   }
 
   private def sink[Z, CommitMetadata](
@@ -75,6 +77,12 @@ final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
 
     leftSink concurrently rightSink
   }
+
+  implicit val F = Async[IO]
   override def streamFromStore()
-      : fs2.Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = ???
+      : fs2.Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
+
+    // Placeholder
+    Stream.sleep(1.minute).flatMap(_ => Stream.empty)
+  }
 }
