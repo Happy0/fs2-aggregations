@@ -1,35 +1,25 @@
 package fs2.aggregations.join.dynamo
 
 import cats.effect.{Async, IO}
+import dynosaur.Schema
 import fs2.Stream
-import dynosaur._
-import fs2.aggregations.join.models.dynamo.DynamoRecord
+import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
 import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
-import fs2.aggregations.join.models.{JoinRecord, StreamSource}
-import fs2.kafka.{CommittableOffset, KafkaProducer}
+import fs2.aggregations.join.models.StreamSource
+import fs2.kafka.CommittableOffset
 import meteor.{DynamoDbType, KeyDef}
 import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Encoder}
-
 import meteor.codec.Encoder.dynamoEncoderForString
-import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
+
+import meteor.dynosaur.formats.conversions._
+import meteor.codec.Codec
 
 import scala.concurrent.duration.DurationInt
-
-
-case class DynamoStoreConfig[X, Y](
-    client: DynamoDbAsyncClient,
-    tableName: String,
-    kafkaNotificationTopic: String,
-    leftSchema: Schema[X],
-    rightSchema: Schema[Y]
-)
 
 final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config: DynamoStoreConfig[X, Y]
 ) extends Fs2OneToOneJoiner[X, Y, CommitMetadata, CommittableOffset[IO]] {
-
-  import DynamoRecord._
 
   private val table: CompositeTable[IO, String, String] =
     CompositeTable[IO, String, String](
@@ -40,7 +30,7 @@ final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     )
 
   private def writeToTable[Z](PK: String, SK: String, item: Z)(implicit
-      itemCodec: Encoder[DynamoRecord[Z]]
+      itemCodec: Codec[DynamoRecord[Z]]
   ): IO[Unit] = {
 
     val record = DynamoRecord[Z](PK, SK, item)
@@ -54,14 +44,17 @@ final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
   private def sink[Z, CommitMetadata](
       stream: StreamSource[Z, CommitMetadata],
       isLeft: Boolean
-  ): Stream[IO, Unit] = {
-
-    implicit val encoder: Encoder[DynamoRecord[Z]] = ???
+  )(implicit codec: Codec[Z]): Stream[IO, Unit] = {
 
     val SK = if (isLeft) "LEFT" else "RIGHT"
 
+    val decoder = DynamoRecord.dynamoRecordDecoder[Z]
+    val encoder = DynamoRecord.dynamoRecordEncoder[Z]
+
+    implicit val autoCodec: Codec[DynamoRecord[Z]] = Codec.dynamoCodecFromEncoderAndDecoder(encoder, decoder)
+
     stream.source
-      .evalMap((x) => writeToTable(stream.key(x.record), SK, x.record) as x)
+      .evalMap((x) => writeToTable(stream.key(x.record), SK, x.record)(autoCodec) as x)
       .evalMap(x =>
         publishToKafka(stream.key(x.record), SK) as x.commitMetadata
       )
@@ -72,8 +65,8 @@ final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       left: StreamSource[X, CommitMetadata],
       right: StreamSource[Y, CommitMetadata]
   ): Stream[IO, Unit] = {
-    val leftSink = sink(left, true)
-    val rightSink = sink(right, false)
+    val leftSink = sink(left, true)(config.leftCodec)
+    val rightSink = sink(right, false)(config.rightCodec)
 
     leftSink concurrently rightSink
   }
