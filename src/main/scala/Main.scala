@@ -6,15 +6,18 @@ import fs2.aggregations.join.models.{JoinRecord, StreamSource}
 import fs2.aggregations.join.dynamo.DistributedDynamoFs2OneToOneJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
 import meteor.codec.Codec
+import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 
 object Main extends IOApp {
 
   import fs2.aggregations.join.Fs2StreamJoinerExtensions._
   def run(args: List[String]): IO[ExitCode] = {
 
+    val dynamoClient = DynamoDbAsyncClient.create()
+
     val joiner = DistributedDynamoFs2OneToOneJoiner[Int, Int, Unit](
       config = DynamoStoreConfig(
-        client = ???,
+        client = dynamoClient,
         tableName = "joinTableTest",
         kafkaNotificationTopic = "test",
         leftCodec = Codec[Int],
