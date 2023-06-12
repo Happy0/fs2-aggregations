@@ -17,7 +17,7 @@ import meteor.codec.Codec
 
 import scala.concurrent.duration.DurationInt
 
-final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
+final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config: DynamoStoreConfig[X, Y]
 ) extends Fs2OneToOneJoiner[X, Y, CommitMetadata, CommittableOffset[IO]] {
 
@@ -32,7 +32,6 @@ final class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
   private def writeToTable[Z](PK: String, SK: String, item: Z)(implicit
       itemCodec: Codec[DynamoRecord[Z]]
   ): IO[Unit] = {
-
     val record = DynamoRecord[Z](PK, SK, item)
 
     table.put(record)(itemCodec)

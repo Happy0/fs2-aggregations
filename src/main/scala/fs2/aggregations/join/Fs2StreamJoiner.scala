@@ -10,7 +10,6 @@ case class JoinedResult[X, Y, CommitMetadata](
 )
 
 trait Fs2StreamJoiner[X, Y, SourceCommitMetadata, StoreCommitMetadata] {
-
   def sinkToStore(
       left: StreamSource[X, SourceCommitMetadata],
       right: StreamSource[Y, SourceCommitMetadata]
