@@ -53,7 +53,7 @@ object Main extends IOApp {
       config = DynamoStoreConfig(
         client = dynamoClient,
         tableName = "joinTableTest",
-        kafkaNotificationTopic = "test",
+        kafkaNotificationTopicProducer = "test",
         leftCodec = Codec[User],
         rightCodec = Codec[Hing]
       )
