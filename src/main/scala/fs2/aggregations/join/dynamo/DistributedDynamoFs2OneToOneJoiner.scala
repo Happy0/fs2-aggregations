@@ -12,9 +12,6 @@ import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Encoder}
 import meteor.codec.Encoder.dynamoEncoderForString
 
-import meteor.dynosaur.formats.conversions._
-import meteor.codec.Codec
-
 import scala.concurrent.duration.DurationInt
 
 final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
