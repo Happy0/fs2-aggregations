@@ -6,13 +6,12 @@ import fs2.Stream
 import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
 import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
 import fs2.aggregations.join.models.StreamSource
-import fs2.kafka.{CommittableOffset, KafkaProducer}
+import fs2.kafka.{CommittableOffset, KafkaConsumer}
 import meteor.{DynamoDbType, KeyDef}
 import meteor.api.hi.CompositeTable
-import meteor.codec.{Codec, Decoder, Encoder}
+import meteor.codec.{Codec, Decoder}
 import meteor.codec.Encoder.dynamoEncoderForString
 
-import scala.concurrent.duration.DurationInt
 
 final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config: DynamoStoreConfig[X, Y]
@@ -39,36 +38,37 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
   override def streamFromStore()
       : fs2.Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
 
-    implicit val eitherDecoder =
-      DynamoRecord.eitherDecoder[X, Y](config.leftCodec, config.rightCodec)
-
     for {
       _ <- Stream.eval(
         config.kafkaNotificationTopicConsumer.subscribeTo(
           config.kafkaNotificationTopic
         )
       )
-      stream <- config.kafkaNotificationTopicConsumer.records
-        .evalMap(item => {
-          val pk = item.record.key
-
-          for {
-            _ <- IO.println("Consumer got record?")
-            _ <- IO.println("PK: " + pk)
-            items <- getDynamoPartition(pk).compile.toList
-            joined = joinItems(items)
-            _ <- IO.println("Join result: ")
-            _ <- IO.println(joined)
-            result = Stream
-              .fromOption[IO](joined.map(x => JoinedResult(x, item.offset)))
-
-            // Commit ourselves if there was no join before we continue
-            _ <- if (joined.isEmpty) item.offset.commit else IO.unit
-          } yield (result)
-        })
-        .flatten
+      stream <- streamUpdates(config.kafkaNotificationTopicConsumer)
     } yield (stream)
+  }
 
+  private def streamUpdates(
+      kafkaConsumer: KafkaConsumer[IO, String, String]
+  ): Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
+    implicit val eitherDecoder =
+      DynamoRecord.eitherDecoder[X, Y](config.leftCodec, config.rightCodec)
+
+    kafkaConsumer.records
+      .evalMap(item => {
+        val pk = item.record.key
+
+        for {
+          items <- getDynamoPartition(pk).compile.toList
+          joined = joinItems(items)
+          result = Stream
+            .fromOption[IO](joined.map(x => JoinedResult(x, item.offset)))
+
+          // Commit ourselves if there was no join before we continue
+          _ <- if (joined.isEmpty) item.offset.commit else IO.unit
+        } yield (result)
+      })
+      .flatten
   }
 
   private def getDynamoPartition(pk: String)(implicit
@@ -79,8 +79,6 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
   private def joinItems(
       dynamoRecords: List[Either[DynamoRecord[X], DynamoRecord[Y]]]
   ): Option[(X, Y)] = {
-    println("Joining records")
-    println(dynamoRecords)
     for {
       left <- dynamoRecords.find(x => x.isLeft).flatMap(x => x.left.toOption)
       right <- dynamoRecords.find(x => x.isRight).flatMap(x => x.right.toOption)
@@ -97,14 +95,11 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
 
   private def publishNotificationToKafka(PK: String, SK: String): IO[Unit] = {
     val producer = config.kafkaNotificationTopicProducer
-    for {
-      _ <- IO.println("About to produce!")
-      _ <- producer
-        .produceOne(config.kafkaNotificationTopic, PK, SK)
-        .flatten
-        .void
-      _ <- IO.println("Produced!")
-    } yield ()
+
+    producer
+      .produceOne(config.kafkaNotificationTopic, PK, SK)
+      .flatten
+      .void
   }
 
   private def sink[Z, CommitMetadata](

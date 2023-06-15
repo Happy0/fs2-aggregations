@@ -124,7 +124,9 @@ object Main extends IOApp {
       producer <- KafkaProducer.stream(producerSettings)
       consumer <- KafkaConsumer
         .stream(consumerSettings)
-      appStream <- getAppStream(producer, consumer).evalMap(x => IO.println(x))
+      appStream <- getAppStream(producer, consumer)
+        .evalMap(x => IO.println(x) as x)
+        .evalMap(x => x.commitMetadata.commit)
     } yield { appStream }
 
     appStream.compile.drain.void.map(_ => ExitCode.Success)
