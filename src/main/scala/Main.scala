@@ -1,10 +1,13 @@
+import Main.Hing
 import cats.effect.{ExitCode, IO, IOApp}
-import fs2.aggregations.join.JoinConfig
+import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
+import fs2.aggregations.join.{JoinConfig, JoinedResult}
 import fs2.{Stream, _}
-import fs2.kafka.commitBatchWithin
+import fs2.kafka.{CommittableOffset, ConsumerSettings, KafkaConsumer, KafkaProducer, ProducerSettings, commitBatchWithin}
 import fs2.aggregations.join.models.{JoinRecord, StreamSource}
 import fs2.aggregations.join.dynamo.DistributedDynamoFs2OneToOneJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
+import fs2.kafka.consumer.KafkaConsume
 import meteor.codec.{Codec, Decoder, Encoder}
 import meteor.errors
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
@@ -17,7 +20,8 @@ object Main extends IOApp {
   object User {
 
     implicit val userEncoder: Encoder[User] = new Encoder[User] {
-      override def write(a: User): AttributeValue = Map("userId" -> a.userId, "name" -> a.name).asAttributeValue
+      override def write(a: User): AttributeValue =
+        Map("userId" -> a.userId, "name" -> a.name).asAttributeValue
     }
 
     implicit val userDecoder: Decoder[User] = new Decoder[User] {
@@ -32,7 +36,8 @@ object Main extends IOApp {
 
   object Hing {
     implicit val userEncoder: Encoder[Hing] = new Encoder[Hing] {
-      override def write(a: Hing): AttributeValue = Map("userId" -> a.userId, "hing" -> a.hing).asAttributeValue
+      override def write(a: Hing): AttributeValue =
+        Map("userId" -> a.userId, "hing" -> a.hing).asAttributeValue
     }
 
     implicit val userDecoder: Decoder[Hing] = new Decoder[Hing] {
@@ -44,16 +49,21 @@ object Main extends IOApp {
     }
   }
 
-  import fs2.aggregations.join.Fs2StreamJoinerExtensions._
-  def run(args: List[String]): IO[ExitCode] = {
+  private def getAppStream(
+      kafkaProducer: KafkaProducer[IO, String, String],
+      kafkaConsumer: KafkaConsumer[IO, String, String]
+  ): Stream[IO, JoinedResult[User, Hing, CommittableOffset[IO]]] = {
 
     val dynamoClient = DynamoDbAsyncClient.create()
+
 
     val joiner = DistributedDynamoFs2OneToOneJoiner[User, Hing, Unit](
       config = DynamoStoreConfig(
         client = dynamoClient,
         tableName = "joinTableTest",
-        kafkaNotificationTopicProducer = "test",
+        "test-notifications",
+        kafkaProducer,
+        kafkaConsumer,
         leftCodec = Codec[User],
         rightCodec = Codec[Hing]
       )
@@ -65,18 +75,17 @@ object Main extends IOApp {
         User("2", "Michael")
       ).map(x => JoinRecord(x, ()))
 
-
     val stream2: Stream[IO, JoinRecord[Hing, Unit]] =
       Stream(
         Hing("1", "Nose picking"),
         Hing("2", "Cheese eating")
       ).map(x => JoinRecord(x, ()))
 
-    val joinStream = stream1
+    stream1
       .joinOneToOne(
         stream2,
         joiner,
-        JoinConfig[User, Hing, Unit ](
+        JoinConfig[User, Hing, Unit](
           keyLeft = (x) => x.userId,
           keyRight = (y) => y.userId,
           commitStoreLeft = (x) => x,
@@ -84,7 +93,25 @@ object Main extends IOApp {
         )
       )
 
-    joinStream.compile.drain.map(_ => ExitCode.Success)
   }
 
+  def run(args: List[String]): IO[ExitCode] = {
+
+
+    val producerSettings = ProducerSettings[IO, String, String]
+      .withBootstrapServers("localhost:9092")
+      .withClientId("produceraroonie")
+
+    val consumerSettings = ConsumerSettings[IO, String, String]
+      .withBootstrapServers("localhost:9092")
+      .withGroupId("consumergrouparoonie-1")
+
+    val appStream = for {
+      producer <- KafkaProducer.stream(producerSettings)
+      consumer <- KafkaConsumer.stream(consumerSettings)
+      appStream <- getAppStream(producer, consumer).evalMap(x => IO.println(x) )
+    } yield { appStream }
+
+    appStream.compile.drain.void.map(_ => ExitCode.Success)
+  }
 }
