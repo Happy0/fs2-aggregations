@@ -42,26 +42,33 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     implicit val eitherDecoder =
       DynamoRecord.eitherDecoder[X, Y](config.leftCodec, config.rightCodec)
 
-    config.kafkaNotificationTopicConsumer
-      .records
-      .evalMap(item => {
-        val pk = item.record.key
+    for {
+      _ <- Stream.eval(
+        config.kafkaNotificationTopicConsumer.subscribeTo(
+          config.kafkaNotificationTopic
+        )
+      )
+      stream <- config.kafkaNotificationTopicConsumer.records
+        .evalMap(item => {
+          val pk = item.record.key
 
-        for {
-          _ <- IO.println("Consumer got record?")
-          _ <- IO.println("PK: " + pk)
-          items <- getDynamoPartition(pk).compile.toList
-          joined = joinItems(items)
-          _ <- IO.println("Join result: ")
-          _ <- IO.println(joined)
-          result = Stream
-            .fromOption[IO](joined.map(x => JoinedResult(x, item.offset)))
+          for {
+            _ <- IO.println("Consumer got record?")
+            _ <- IO.println("PK: " + pk)
+            items <- getDynamoPartition(pk).compile.toList
+            joined = joinItems(items)
+            _ <- IO.println("Join result: ")
+            _ <- IO.println(joined)
+            result = Stream
+              .fromOption[IO](joined.map(x => JoinedResult(x, item.offset)))
 
-          // Commit ourselves if there was no join before we continue
-          _ <- if (joined.isEmpty) item.offset.commit else IO.unit
-        } yield (result)
-      })
-      .flatten
+            // Commit ourselves if there was no join before we continue
+            _ <- if (joined.isEmpty) item.offset.commit else IO.unit
+          } yield (result)
+        })
+        .flatten
+    } yield (stream)
+
   }
 
   private def getDynamoPartition(pk: String)(implicit
@@ -92,7 +99,10 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     val producer = config.kafkaNotificationTopicProducer
     for {
       _ <- IO.println("About to produce!")
-      _ <- producer.produceOne(config.kafkaNotificationTopic, PK, SK).flatten.void
+      _ <- producer
+        .produceOne(config.kafkaNotificationTopic, PK, SK)
+        .flatten
+        .void
       _ <- IO.println("Produced!")
     } yield ()
   }

@@ -124,7 +124,6 @@ object Main extends IOApp {
       producer <- KafkaProducer.stream(producerSettings)
       consumer <- KafkaConsumer
         .stream(consumerSettings)
-        .subscribeTo("test-notifications")
       appStream <- getAppStream(producer, consumer).evalMap(x => IO.println(x))
     } yield { appStream }
 
