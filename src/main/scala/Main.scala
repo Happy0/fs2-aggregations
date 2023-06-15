@@ -3,7 +3,17 @@ import cats.effect.{ExitCode, IO, IOApp}
 import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
 import fs2.aggregations.join.{JoinConfig, JoinedResult}
 import fs2.{Stream, _}
-import fs2.kafka.{CommittableOffset, ConsumerSettings, KafkaConsumer, KafkaProducer, ProducerSettings, commitBatchWithin}
+import fs2.kafka.{
+  AutoOffsetReset,
+  CommittableOffset,
+  ConsumerSettings,
+  Deserializer,
+  KafkaConsumer,
+  KafkaProducer,
+  ProducerSettings,
+  Serializer,
+  commitBatchWithin
+}
 import fs2.aggregations.join.models.{JoinRecord, StreamSource}
 import fs2.aggregations.join.dynamo.DistributedDynamoFs2OneToOneJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
@@ -56,7 +66,6 @@ object Main extends IOApp {
 
     val dynamoClient = DynamoDbAsyncClient.create()
 
-
     val joiner = DistributedDynamoFs2OneToOneJoiner[User, Hing, Unit](
       config = DynamoStoreConfig(
         client = dynamoClient,
@@ -97,19 +106,26 @@ object Main extends IOApp {
 
   def run(args: List[String]): IO[ExitCode] = {
 
-
-    val producerSettings = ProducerSettings[IO, String, String]
+    val producerSettings = ProducerSettings[IO, String, String](
+      keySerializer = Serializer[IO, String],
+      valueSerializer = Serializer[IO, String]
+    )
       .withBootstrapServers("localhost:9092")
       .withClientId("produceraroonie")
 
-    val consumerSettings = ConsumerSettings[IO, String, String]
+    val consumerSettings = ConsumerSettings[IO, String, String](
+      keyDeserializer = Deserializer[IO, String],
+      valueDeserializer = Deserializer[IO, String]
+    ).withAutoOffsetReset(AutoOffsetReset.Earliest)
       .withBootstrapServers("localhost:9092")
       .withGroupId("consumergrouparoonie-1")
 
     val appStream = for {
       producer <- KafkaProducer.stream(producerSettings)
-      consumer <- KafkaConsumer.stream(consumerSettings)
-      appStream <- getAppStream(producer, consumer).evalMap(x => IO.println(x) )
+      consumer <- KafkaConsumer
+        .stream(consumerSettings)
+        .subscribeTo("test-notifications")
+      appStream <- getAppStream(producer, consumer).evalMap(x => IO.println(x))
     } yield { appStream }
 
     appStream.compile.drain.void.map(_ => ExitCode.Success)

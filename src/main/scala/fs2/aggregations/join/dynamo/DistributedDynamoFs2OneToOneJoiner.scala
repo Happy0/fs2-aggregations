@@ -42,13 +42,18 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     implicit val eitherDecoder =
       DynamoRecord.eitherDecoder[X, Y](config.leftCodec, config.rightCodec)
 
-    config.kafkaNotificationTopicConsumer.stream
+    config.kafkaNotificationTopicConsumer
+      .records
       .evalMap(item => {
         val pk = item.record.key
 
         for {
+          _ <- IO.println("Consumer got record?")
+          _ <- IO.println("PK: " + pk)
           items <- getDynamoPartition(pk).compile.toList
           joined = joinItems(items)
+          _ <- IO.println("Join result: ")
+          _ <- IO.println(joined)
           result = Stream
             .fromOption[IO](joined.map(x => JoinedResult(x, item.offset)))
 
@@ -67,9 +72,11 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
   private def joinItems(
       dynamoRecords: List[Either[DynamoRecord[X], DynamoRecord[Y]]]
   ): Option[(X, Y)] = {
+    println("Joining records")
+    println(dynamoRecords)
     for {
-      left <- dynamoRecords.map(x => x.left.toOption).headOption.flatten
-      right <- dynamoRecords.map(x => x.right.toOption).headOption.flatten
+      left <- dynamoRecords.find(x => x.isLeft).flatMap(x => x.left.toOption)
+      right <- dynamoRecords.find(x => x.isRight).flatMap(x => x.right.toOption)
     } yield (left.content, right.content)
   }
 
@@ -83,7 +90,11 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
 
   private def publishNotificationToKafka(PK: String, SK: String): IO[Unit] = {
     val producer = config.kafkaNotificationTopicProducer
-    producer.produceOne(config.kafkaNotificationTopic, PK, SK).flatten.void
+    for {
+      _ <- IO.println("About to produce!")
+      _ <- producer.produceOne(config.kafkaNotificationTopic, PK, SK).flatten.void
+      _ <- IO.println("Produced!")
+    } yield ()
   }
 
   private def sink[Z, CommitMetadata](
