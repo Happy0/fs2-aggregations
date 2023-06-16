@@ -13,6 +13,8 @@ import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Decoder}
 import meteor.codec.Encoder.dynamoEncoderForString
 
+import fs2.aggregations.join.utils.StreamJoinUtils._
+
 final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config: DynamoStoreConfig[X, Y]
 ) extends Fs2OneToOneJoiner[X, Y, CommitMetadata, CommittableOffset[IO]] {
@@ -24,30 +26,6 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       KeyDef[String]("SK", DynamoDbType.S),
       config.client
     )
-
-  private def notifyFinished(deferred: Deferred[IO, Unit]) =
-    Stream.eval(deferred.complete().void)
-  private def awaitFinished(deferred: Deferred[IO, Unit]) =
-    Stream.eval(deferred.get.void)
-
-  def concurrentlyUntilBothComplete[A, B](
-      outer: Stream[IO, A],
-      inner: Stream[IO, B]
-  ): Stream[IO, A] = {
-    for {
-      rightStreamCompleteNotifier <- Stream.eval(Deferred[IO, Unit])
-      awaitFinishedNotifier = awaitFinished(rightStreamCompleteNotifier)
-      notifyComplete = notifyFinished(rightStreamCompleteNotifier)
-
-      left = outer.onComplete(awaitFinishedNotifier >> Stream.empty)
-      right = inner.onComplete(notifyComplete >> Stream.empty)
-
-      stream <- left concurrently right
-    } yield {
-      stream
-    }
-
-  }
 
   override def sinkToStore(
       left: StreamSource[X, CommitMetadata],
@@ -110,23 +88,6 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     } yield (left.content, right.content)
   }
 
-  private def writeToTable[Z](PK: String, SK: String, item: Z)(implicit
-      itemCodec: Codec[DynamoRecord[Z]]
-  ): IO[Unit] = {
-    val record = DynamoRecord[Z](PK, SK, item)
-
-    table.put(record)(itemCodec)
-  }
-
-  private def publishNotificationToKafka(PK: String, SK: String): IO[Unit] = {
-    val producer = config.kafkaNotificationTopicProducer
-
-    producer
-      .produceOne(config.kafkaNotificationTopic, PK, SK)
-      .flatten
-      .void
-  }
-
   private def sink[Z, CommitMetadata](
       stream: StreamSource[Z, CommitMetadata],
       isLeft: Boolean
@@ -142,10 +103,15 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
 
     stream.source
       .evalMap((x) =>
-        writeToTable(stream.key(x.record), SK, x.record)(autoCodec) as x
+        writeToTable(table, stream.key(x.record), SK, x.record)(autoCodec) as x
       )
       .evalMap(x =>
-        publishNotificationToKafka(stream.key(x.record), SK) as x.commitMetadata
+        publishNotificationToKafka(
+          config.kafkaNotificationTopicProducer,
+          config.kafkaNotificationTopic,
+          stream.key(x.record),
+          SK
+        ) as x.commitMetadata
       )
       .through(stream.commitProcessed)
 
