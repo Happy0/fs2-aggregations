@@ -4,6 +4,7 @@ import cats.effect.kernel.Deferred
 import cats.effect.{Async, IO}
 import dynosaur.Schema
 import fs2.Stream
+import fs2.aggregations.join.dynamo.clients.{DynamoRecordDB, KafkaNotifier}
 import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
 import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
 import fs2.aggregations.join.models.StreamSource
@@ -12,7 +13,6 @@ import meteor.{DynamoDbType, KeyDef}
 import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Decoder}
 import meteor.codec.Encoder.dynamoEncoderForString
-
 import fs2.aggregations.join.utils.StreamJoinUtils._
 
 final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
@@ -27,6 +27,14 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       config.client
     )
 
+  private val dynamoRecordDB = new DynamoRecordDB(table)
+
+  private val kafkaNotifier = new KafkaNotifier(
+    config.kafkaNotificationTopicConsumer,
+    config.kafkaNotificationTopicProducer,
+    config.kafkaNotificationTopic
+  )
+
   override def sinkToStore(
       left: StreamSource[X, CommitMetadata],
       right: StreamSource[Y, CommitMetadata]
@@ -38,31 +46,21 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     concurrentlyUntilBothComplete(leftSink, rightSink)
   }
 
-  override def streamFromStore()
-      : fs2.Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
-
-    for {
-      _ <- Stream.eval(
-        config.kafkaNotificationTopicConsumer.subscribeTo(
-          config.kafkaNotificationTopic
-        )
-      )
-      stream <- streamUpdates(config.kafkaNotificationTopicConsumer)
-    } yield (stream)
-  }
-
-  private def streamUpdates(
-      kafkaConsumer: KafkaConsumer[IO, String, String]
+  override def streamFromStore(
   ): Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
     implicit val eitherDecoder =
       DynamoRecord.eitherDecoder[X, Y](config.leftCodec, config.rightCodec)
 
-    kafkaConsumer.records
+    kafkaNotifier
+      .subscribeToNotifications()
       .evalMap(item => {
         val pk = item.record.key
 
         for {
-          items <- streamDynamoPartition(table, pk).compile.toList
+          items <- dynamoRecordDB
+            .streamDynamoPartition(table, pk)
+            .compile
+            .toList
           joined = joinItems(items)
           result = Stream
             .fromOption[IO](joined.map(x => JoinedResult(x, item.offset)))
@@ -98,17 +96,17 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
 
     stream.source
       .evalMap((x) =>
-        writeToTable(table, stream.key(x.record), SK, x.record)(autoCodec) as x
+        dynamoRecordDB
+          .writeToTable(table, stream.key(x.record), SK, x.record)(
+            autoCodec
+          ) as x
       )
       .evalMap(x =>
-        publishNotificationToKafka(
-          config.kafkaNotificationTopicProducer,
-          config.kafkaNotificationTopic,
+        kafkaNotifier.publishNotificationToKafka(
           stream.key(x.record),
           SK
         ) as x.commitMetadata
       )
       .through(stream.commitProcessed)
-
   }
 }

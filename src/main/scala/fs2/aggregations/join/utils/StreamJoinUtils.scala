@@ -33,38 +33,7 @@ object StreamJoinUtils {
 
   }
 
-  def writeToTable[Z](
-      table: CompositeTable[IO, String, String],
-      PK: String,
-      SK: String,
-      item: Z
-  )(implicit
-      itemCodec: Codec[DynamoRecord[Z]]
-  ): IO[Unit] = {
-    val record = DynamoRecord[Z](PK, SK, item)
 
-    table.put(record)(itemCodec)
-  }
 
-  def publishNotificationToKafka(
-      kafkaNotificationTopicProducer: KafkaProducer[IO, String, String],
-      notificationTopic: String,
-      PK: String,
-      SK: String
-  ): IO[Unit] = {
-
-    kafkaNotificationTopicProducer
-      .produceOne(notificationTopic, PK, SK)
-      .flatten
-      .void
-  }
-  def streamDynamoPartition[X,Y](
-      table: CompositeTable[IO, String, String],
-      pk: String
-  )(implicit
-      decoder: Decoder[Either[DynamoRecord[X], DynamoRecord[Y]]]
-  ): Stream[IO, Either[DynamoRecord[X], DynamoRecord[Y]]] = {
-    table.retrieve[Either[DynamoRecord[X], DynamoRecord[Y]]](pk, true)
-  }
 
 }
