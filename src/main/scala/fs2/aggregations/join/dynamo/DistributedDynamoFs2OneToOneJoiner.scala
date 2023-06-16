@@ -4,7 +4,12 @@ import cats.effect.kernel.Deferred
 import cats.effect.{Async, IO}
 import dynosaur.Schema
 import fs2.Stream
-import fs2.aggregations.join.dynamo.clients.{DynamoRecordDB, KafkaNotifier}
+import fs2.aggregations.join.dynamo.base.DistributedDynamoJoiner
+import fs2.aggregations.join.dynamo.clients.{
+  Clients,
+  DynamoRecordDB,
+  KafkaNotifier
+}
 import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
 import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
 import fs2.aggregations.join.models.StreamSource
@@ -19,28 +24,13 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config: DynamoStoreConfig[X, Y]
 ) extends Fs2OneToOneJoiner[X, Y, CommitMetadata, CommittableOffset[IO]] {
 
-  private val table: CompositeTable[IO, String, String] =
-    CompositeTable[IO, String, String](
-      config.tableName,
-      KeyDef[String]("PK", DynamoDbType.S),
-      KeyDef[String]("SK", DynamoDbType.S),
-      config.client
-    )
-
-  private val dynamoRecordDB = new DynamoRecordDB(table)
-
-  private val kafkaNotifier = new KafkaNotifier(
-    config.kafkaNotificationTopicConsumer,
-    config.kafkaNotificationTopicProducer,
-    config.kafkaNotificationTopic
-  )
+  private val clients = Clients(config)
 
   private val distributedDynamoJoiner =
     new DistributedDynamoJoiner[X, Y, CommitMetadata](
-      dynamoRecordDB,
-      kafkaNotifier
+      clients.dynamoRecordDB,
+      clients.kafkaNotifier
     )
-
   override def sinkToStore(
       left: StreamSource[X, CommitMetadata],
       right: StreamSource[Y, CommitMetadata]
@@ -69,8 +59,8 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     val pk = notification.record.key
 
     val result = for {
-      items <- dynamoRecordDB
-        .streamDynamoPartition(table, pk)
+      items <- clients.dynamoRecordDB
+        .streamDynamoPartition(pk)
         .compile
         .toList
       joined = joinItems(items)

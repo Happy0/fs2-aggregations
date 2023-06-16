@@ -19,7 +19,6 @@ final class DynamoRecordDB(table: CompositeTable[IO, String, String]) {
   }
 
   def streamDynamoPartition[X, Y](
-      table: CompositeTable[IO, String, String],
       pk: String
   )(implicit
       decoder: Decoder[Either[DynamoRecord[X], DynamoRecord[Y]]]

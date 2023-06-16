@@ -1,14 +1,14 @@
-package fs2.aggregations.join.dynamo
+package fs2.aggregations.join.dynamo.base
 
 import cats.effect.IO
-import fs2.aggregations.join.models.StreamSource
-import meteor.codec.Codec
 import fs2.Stream
 import fs2.aggregations.join.JoinedResult
 import fs2.aggregations.join.dynamo.clients.{DynamoRecordDB, KafkaNotifier}
+import fs2.aggregations.join.models.StreamSource
 import fs2.aggregations.join.models.dynamo.DynamoRecord
 import fs2.aggregations.join.utils.StreamJoinUtils.concurrentlyUntilBothComplete
 import fs2.kafka.{CommittableConsumerRecord, CommittableOffset}
+import meteor.codec.Codec
 
 class DistributedDynamoJoiner[X, Y, CommitMetadata](
     table: DynamoRecordDB,
@@ -64,3 +64,4 @@ class DistributedDynamoJoiner[X, Y, CommitMetadata](
   }
 
 }
+
