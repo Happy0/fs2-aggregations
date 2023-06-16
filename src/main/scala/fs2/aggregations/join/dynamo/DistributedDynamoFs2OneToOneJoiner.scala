@@ -8,7 +8,7 @@ import fs2.aggregations.join.dynamo.clients.{DynamoRecordDB, KafkaNotifier}
 import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
 import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
 import fs2.aggregations.join.models.StreamSource
-import fs2.kafka.{CommittableOffset, KafkaConsumer}
+import fs2.kafka.{CommittableConsumerRecord, CommittableOffset, KafkaConsumer}
 import meteor.{DynamoDbType, KeyDef}
 import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Decoder}
@@ -35,21 +35,18 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config.kafkaNotificationTopic
   )
 
-  private val distributedDynamoJoiner = new DistributedDynamoJoiner[X,Y,CommitMetadata](
-    dynamoRecordDB,
-    kafkaNotifier
-  )
+  private val distributedDynamoJoiner =
+    new DistributedDynamoJoiner[X, Y, CommitMetadata](
+      dynamoRecordDB,
+      kafkaNotifier
+    )
 
   override def sinkToStore(
       left: StreamSource[X, CommitMetadata],
       right: StreamSource[Y, CommitMetadata]
   ): Stream[IO, Unit] = {
 
-    distributedDynamoJoiner.sink(
-      left,
-      right,
-      left => "LEFT",
-      right => "RIGHT")(
+    distributedDynamoJoiner.sink(left, right, left => "LEFT", right => "RIGHT")(
       config.leftCodec,
       config.rightCodec
     )
@@ -60,25 +57,31 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     implicit val eitherDecoder =
       DynamoRecord.eitherDecoder[X, Y](config.leftCodec, config.rightCodec)
 
-    kafkaNotifier
-      .subscribeToNotifications()
-      .evalMap(item => {
-        val pk = item.record.key
+    distributedDynamoJoiner.streamFromStore(joinResults)
+  }
 
-        for {
-          items <- dynamoRecordDB
-            .streamDynamoPartition(table, pk)
-            .compile
-            .toList
-          joined = joinItems(items)
-          result = Stream
-            .fromOption[IO](joined.map(x => JoinedResult(x, item.offset)))
+  private def joinResults(
+      notification: CommittableConsumerRecord[IO, String, String]
+  )(implicit
+      decoder: Decoder[Either[DynamoRecord[X], DynamoRecord[Y]]]
+  ): Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
 
-          // Commit ourselves if there was no join before we continue
-          _ <- if (joined.isEmpty) item.offset.commit else IO.unit
-        } yield (result)
-      })
-      .flatten
+    val pk = notification.record.key
+
+    val result = for {
+      items <- dynamoRecordDB
+        .streamDynamoPartition(table, pk)
+        .compile
+        .toList
+      joined = joinItems(items)
+      result = Stream
+        .fromOption[IO](joined.map(x => JoinedResult(x, notification.offset)))
+
+      // Commit ourselves if there was no join before we continue
+      _ <- if (joined.isEmpty) notification.offset.commit else IO.unit
+    } yield result
+
+    Stream.eval(result).flatten
   }
 
   private def joinItems(

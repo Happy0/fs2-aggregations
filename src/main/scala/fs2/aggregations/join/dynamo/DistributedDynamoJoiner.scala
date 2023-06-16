@@ -4,14 +4,26 @@ import cats.effect.IO
 import fs2.aggregations.join.models.StreamSource
 import meteor.codec.Codec
 import fs2.Stream
+import fs2.aggregations.join.JoinedResult
 import fs2.aggregations.join.dynamo.clients.{DynamoRecordDB, KafkaNotifier}
 import fs2.aggregations.join.models.dynamo.DynamoRecord
 import fs2.aggregations.join.utils.StreamJoinUtils.concurrentlyUntilBothComplete
+import fs2.kafka.{CommittableConsumerRecord, CommittableOffset}
 
 class DistributedDynamoJoiner[X, Y, CommitMetadata](
     table: DynamoRecordDB,
     kafkaNotifier: KafkaNotifier
 ) {
+
+  def streamFromStore(
+      onUpdate: (
+          CommittableConsumerRecord[IO, String, String]
+      ) => Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]]
+  ): Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
+    kafkaNotifier
+      .subscribeToNotifications()
+      .flatMap(item => onUpdate(item))
+  }
 
   private def sinkStream[Z](
       stream: StreamSource[Z, CommitMetadata],
