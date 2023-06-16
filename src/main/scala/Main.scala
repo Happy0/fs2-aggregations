@@ -1,19 +1,10 @@
 import Main.Hing
-import cats.effect.{ExitCode, IO, IOApp}
+import cats.effect.IO.pure
+import cats.effect.{Async, ExitCode, IO, IOApp}
 import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
 import fs2.aggregations.join.{JoinConfig, JoinedResult}
 import fs2.{Stream, _}
-import fs2.kafka.{
-  AutoOffsetReset,
-  CommittableOffset,
-  ConsumerSettings,
-  Deserializer,
-  KafkaConsumer,
-  KafkaProducer,
-  ProducerSettings,
-  Serializer,
-  commitBatchWithin
-}
+import fs2.kafka.{AutoOffsetReset, CommittableOffset, ConsumerSettings, Deserializer, KafkaConsumer, KafkaProducer, ProducerSettings, Serializer, commitBatchWithin}
 import fs2.aggregations.join.models.{JoinRecord, StreamSource}
 import fs2.aggregations.join.dynamo.DistributedDynamoFs2OneToOneJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
@@ -23,7 +14,14 @@ import meteor.errors
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue
 import meteor.syntax._
+import fs2._
+
+import scala.concurrent.duration.DurationInt
+
 object Main extends IOApp {
+
+  implicit val F = Async[IO]
+
   case class User(userId: String, name: String)
   case class Hing(userId: String, hing: String)
 
@@ -82,13 +80,17 @@ object Main extends IOApp {
       Stream(
         User("1", "Jimmy"),
         User("2", "Michael")
-      ).map(x => JoinRecord(x, ()))
+      )
+        .evalMap(x => IO.sleep(15.seconds) as x)
+        .map(x => JoinRecord(x, ()))
 
     val stream2: Stream[IO, JoinRecord[Hing, Unit]] =
       Stream(
         Hing("1", "Nose picking"),
         Hing("2", "Cheese eating")
-      ).map(x => JoinRecord(x, ()))
+      )
+        .evalMap(x => IO.sleep(5.seconds) >> pure(x))
+        .map(x => JoinRecord(x, ()))
 
     stream1
       .joinOneToOne(
