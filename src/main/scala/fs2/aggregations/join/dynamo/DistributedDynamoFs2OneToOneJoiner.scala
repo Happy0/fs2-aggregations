@@ -25,32 +25,39 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       config.client
     )
 
-  private def notifyFinished (deferred: Deferred[IO, Unit]) = Stream.eval(deferred.complete().void)
-  private def awaitFinished (deferred: Deferred[IO, Unit]) = Stream.eval(deferred.get.void)
+  private def notifyFinished(deferred: Deferred[IO, Unit]) =
+    Stream.eval(deferred.complete().void)
+  private def awaitFinished(deferred: Deferred[IO, Unit]) =
+    Stream.eval(deferred.get.void)
+
+  def concurrentlyUntilBothComplete[A, B](
+      outer: Stream[IO, A],
+      inner: Stream[IO, B]
+  ): Stream[IO, A] = {
+    for {
+      rightStreamCompleteNotifier <- Stream.eval(Deferred[IO, Unit])
+      awaitFinishedNotifier = awaitFinished(rightStreamCompleteNotifier)
+      notifyComplete = notifyFinished(rightStreamCompleteNotifier)
+
+      left = outer.onComplete(awaitFinishedNotifier >> Stream.empty)
+      right = inner.onComplete(notifyComplete >> Stream.empty)
+
+      stream <- left concurrently right
+    } yield {
+      stream
+    }
+
+  }
 
   override def sinkToStore(
       left: StreamSource[X, CommitMetadata],
       right: StreamSource[Y, CommitMetadata]
   ): Stream[IO, Unit] = {
 
-    // Run both streams in parallel, and make sure the right stream doesn't get terminated
-    // when the left sink runs to completion
-    for {
-      rightStreamCompleteNotifier <- Stream.eval(Deferred[IO, Unit])
+    val leftSink = sink(left, true)(config.leftCodec)
+    val rightSink = sink(right, false)(config.rightCodec)
 
-      awaitFinishedNotifier = awaitFinished(rightStreamCompleteNotifier)
-      notifyComplete = notifyFinished(rightStreamCompleteNotifier)
-
-      leftSink = sink(left, true)(config.leftCodec)
-        .onComplete(awaitFinishedNotifier)
-      rightSink = sink(right, false)(config.rightCodec)
-        .onComplete(notifyComplete)
-
-      sinkStream <- leftSink concurrently rightSink
-    } yield {
-      sinkStream
-    }
-
+    concurrentlyUntilBothComplete(leftSink, rightSink)
   }
 
   override def streamFromStore()
