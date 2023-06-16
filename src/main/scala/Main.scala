@@ -81,7 +81,7 @@ object Main extends IOApp {
         User("1", "Jimmy"),
         User("2", "Michael")
       )
-        .evalMap(x => IO.sleep(15.seconds) as x)
+        //.evalMap(x => IO.sleep(15.seconds) as x)
         .map(x => JoinRecord(x, ()))
 
     val stream2: Stream[IO, JoinRecord[Hing, Unit]] =
