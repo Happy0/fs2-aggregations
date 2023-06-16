@@ -7,7 +7,6 @@ import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Decoder}
 final class DynamoRecordDB(table: CompositeTable[IO, String, String]) {
   def writeToTable[Z](
-      table: CompositeTable[IO, String, String],
       PK: String,
       SK: String,
       item: Z

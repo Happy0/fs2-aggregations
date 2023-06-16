@@ -35,15 +35,24 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config.kafkaNotificationTopic
   )
 
+  private val distributedDynamoJoiner = new DistributedDynamoJoiner[X,Y,CommitMetadata](
+    dynamoRecordDB,
+    kafkaNotifier
+  )
+
   override def sinkToStore(
       left: StreamSource[X, CommitMetadata],
       right: StreamSource[Y, CommitMetadata]
   ): Stream[IO, Unit] = {
 
-    val leftSink = sink(left, true)(config.leftCodec)
-    val rightSink = sink(right, false)(config.rightCodec)
-
-    concurrentlyUntilBothComplete(leftSink, rightSink)
+    distributedDynamoJoiner.sink(
+      left,
+      right,
+      left => "LEFT",
+      right => "RIGHT")(
+      config.leftCodec,
+      config.rightCodec
+    )
   }
 
   override def streamFromStore(
@@ -79,34 +88,5 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       left <- dynamoRecords.find(x => x.isLeft).flatMap(x => x.left.toOption)
       right <- dynamoRecords.find(x => x.isRight).flatMap(x => x.right.toOption)
     } yield (left.content, right.content)
-  }
-
-  private def sink[Z, CommitMetadata](
-      stream: StreamSource[Z, CommitMetadata],
-      isLeft: Boolean
-  )(implicit codec: Codec[Z]): Stream[IO, Unit] = {
-
-    val SK = if (isLeft) "LEFT" else "RIGHT"
-
-    val decoder = DynamoRecord.dynamoRecordDecoder[Z]
-    val encoder = DynamoRecord.dynamoRecordEncoder[Z]
-
-    implicit val autoCodec: Codec[DynamoRecord[Z]] =
-      Codec.dynamoCodecFromEncoderAndDecoder(encoder, decoder)
-
-    stream.source
-      .evalMap((x) =>
-        dynamoRecordDB
-          .writeToTable(table, stream.key(x.record), SK, x.record)(
-            autoCodec
-          ) as x
-      )
-      .evalMap(x =>
-        kafkaNotifier.publishNotificationToKafka(
-          stream.key(x.record),
-          SK
-        ) as x.commitMetadata
-      )
-      .through(stream.commitProcessed)
   }
 }
