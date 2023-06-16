@@ -62,7 +62,7 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
         val pk = item.record.key
 
         for {
-          items <- getDynamoPartition(pk).compile.toList
+          items <- streamDynamoPartition(table, pk).compile.toList
           joined = joinItems(items)
           result = Stream
             .fromOption[IO](joined.map(x => JoinedResult(x, item.offset)))
@@ -74,11 +74,6 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       .flatten
   }
 
-  private def getDynamoPartition(pk: String)(implicit
-      decoder: Decoder[Either[DynamoRecord[X], DynamoRecord[Y]]]
-  ): Stream[IO, Either[DynamoRecord[X], DynamoRecord[Y]]] = {
-    table.retrieve[Either[DynamoRecord[X], DynamoRecord[Y]]](pk, true)
-  }
   private def joinItems(
       dynamoRecords: List[Either[DynamoRecord[X], DynamoRecord[Y]]]
   ): Option[(X, Y)] = {

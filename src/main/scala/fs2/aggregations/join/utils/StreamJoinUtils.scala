@@ -5,7 +5,7 @@ import fs2.Stream
 import fs2.aggregations.join.models.dynamo.DynamoRecord
 import fs2.kafka.KafkaProducer
 import meteor.api.hi.CompositeTable
-import meteor.codec.Codec
+import meteor.codec.{Codec, Decoder}
 object StreamJoinUtils {
 
   private def notifyFinished(deferred: Deferred[IO, Unit]) =
@@ -57,6 +57,14 @@ object StreamJoinUtils {
       .produceOne(notificationTopic, PK, SK)
       .flatten
       .void
+  }
+  def streamDynamoPartition[X,Y](
+      table: CompositeTable[IO, String, String],
+      pk: String
+  )(implicit
+      decoder: Decoder[Either[DynamoRecord[X], DynamoRecord[Y]]]
+  ): Stream[IO, Either[DynamoRecord[X], DynamoRecord[Y]]] = {
+    table.retrieve[Either[DynamoRecord[X], DynamoRecord[Y]]](pk, true)
   }
 
 }
