@@ -2,12 +2,7 @@ package fs2.aggregations.join
 
 import cats.effect.IO
 import fs2.Stream
-import fs2.aggregations.join.models.{JoinRecord, StreamSource}
-
-case class JoinedResult[X, Y, CommitMetadata](
-    value: (X, Y),
-    commitMetadata: CommitMetadata
-)
+import fs2.aggregations.join.models.{JoinRecord, JoinedResult, StreamSource}
 
 trait Fs2StreamJoiner[X, Y, SourceCommitMetadata, StoreCommitMetadata] {
   def sinkToStore(

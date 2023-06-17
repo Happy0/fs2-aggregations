@@ -2,10 +2,9 @@ import Main.Hing
 import cats.effect.IO.pure
 import cats.effect.{Async, ExitCode, IO, IOApp}
 import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
-import fs2.aggregations.join.{JoinConfig, JoinedResult}
 import fs2.{Stream, _}
 import fs2.kafka.{AutoOffsetReset, CommittableOffset, ConsumerSettings, Deserializer, KafkaConsumer, KafkaProducer, ProducerSettings, Serializer, commitBatchWithin}
-import fs2.aggregations.join.models.{JoinRecord, StreamSource}
+import fs2.aggregations.join.models.{JoinConfig, JoinRecord, JoinedResult, StreamSource}
 import fs2.aggregations.join.dynamo.DistributedDynamoFs2OneToOneJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
 import fs2.kafka.consumer.KafkaConsume
@@ -100,7 +99,7 @@ object Main extends IOApp {
           keyLeft = (x) => x.userId,
           keyRight = (y) => y.userId,
           commitStoreLeft = (x) => x,
-          commitStoreRight = ((y) => y)
+          commitStoreRight = (x) => x
         )
       )
 
@@ -128,7 +127,8 @@ object Main extends IOApp {
         .stream(consumerSettings)
       appStream <- getAppStream(producer, consumer)
         .evalMap(x => IO.println(x) as x)
-        .evalMap(x => x.commitMetadata.commit)
+        .map(x => JoinedResult.getOffset(x))
+        .through(commitBatchWithin(100, 2.seconds))
     } yield { appStream }
 
     appStream.compile.drain.void.map(_ => ExitCode.Success)

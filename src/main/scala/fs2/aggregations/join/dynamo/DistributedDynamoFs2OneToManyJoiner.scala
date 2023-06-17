@@ -3,8 +3,8 @@ package fs2.aggregations.join.dynamo
 import cats.effect.IO
 import fs2.aggregations.join.dynamo.base.DistributedDynamoJoiner
 import fs2.aggregations.join.dynamo.clients.Clients
-import fs2.aggregations.join.models.StreamSource
-import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
+import fs2.aggregations.join.models.{JoinedResult, StreamSource}
+import fs2.aggregations.join.Fs2OneToOneJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
 import fs2.kafka.CommittableOffset
 

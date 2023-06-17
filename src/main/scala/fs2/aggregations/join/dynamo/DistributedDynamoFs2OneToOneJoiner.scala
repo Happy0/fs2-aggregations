@@ -1,24 +1,16 @@
 package fs2.aggregations.join.dynamo
 
-import cats.effect.kernel.Deferred
-import cats.effect.{Async, IO}
-import dynosaur.Schema
+import cats.effect.{IO}
 import fs2.Stream
+import fs2.aggregations.join.Fs2OneToOneJoiner
 import fs2.aggregations.join.dynamo.base.DistributedDynamoJoiner
-import fs2.aggregations.join.dynamo.clients.{
-  Clients,
-  DynamoRecordDB,
-  KafkaNotifier
-}
+import fs2.aggregations.join.dynamo.clients.{Clients}
 import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
-import fs2.aggregations.join.{Fs2OneToOneJoiner, JoinedResult}
-import fs2.aggregations.join.models.StreamSource
-import fs2.kafka.{CommittableConsumerRecord, CommittableOffset, KafkaConsumer}
-import meteor.{DynamoDbType, KeyDef}
-import meteor.api.hi.CompositeTable
-import meteor.codec.{Codec, Decoder}
-import meteor.codec.Encoder.dynamoEncoderForString
-import fs2.aggregations.join.utils.StreamJoinUtils._
+import fs2.aggregations.join.models.{JoinedResult, StreamSource}
+import fs2.kafka.{CommittableConsumerRecord, CommittableOffset}
+import meteor.codec.{Decoder}
+import fs2.aggregations.join.models.FullJoinedResult
+import fs2.aggregations.join.models.PartialJoinedResult
 
 final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
     config: DynamoStoreConfig[X, Y]
@@ -63,23 +55,39 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
         .streamDynamoPartition(pk)
         .compile
         .toList
-      joined = joinItems(items)
-      result = Stream
-        .fromOption[IO](joined.map(x => JoinedResult(x, notification.offset)))
 
-      // Commit ourselves if there was no join before we continue
-      _ <- if (joined.isEmpty) notification.offset.commit else IO.unit
-    } yield result
+      joined = joinItems(items, notification.offset)
 
-    Stream.eval(result).flatten
+    } yield joined
+
+    Stream.eval(result)
   }
 
   private def joinItems(
-      dynamoRecords: List[Either[DynamoRecord[X], DynamoRecord[Y]]]
-  ): Option[(X, Y)] = {
-    for {
-      left <- dynamoRecords.find(x => x.isLeft).flatMap(x => x.left.toOption)
-      right <- dynamoRecords.find(x => x.isRight).flatMap(x => x.right.toOption)
-    } yield (left.content, right.content)
+      dynamoRecords: List[Either[DynamoRecord[X], DynamoRecord[Y]]],
+      offset: CommittableOffset[IO]
+  ): JoinedResult[X, Y, CommittableOffset[IO]] = {
+
+    val left = dynamoRecords.find(x => x.isLeft).flatMap(x => x.left.toOption)
+    val right =
+      dynamoRecords.find(x => x.isRight).flatMap(x => x.right.toOption)
+
+    (left, right) match {
+      case (Some(left), Some(right)) =>
+        FullJoinedResult[X, Y, CommittableOffset[IO]](
+          (left.content, right.content),
+          offset
+        )
+      case (x, y) => {
+        val contentX = x.map(x => x.content)
+        val contentY = y.map(y => y.content)
+
+        PartialJoinedResult[X, Y, CommittableOffset[IO]](
+          (contentX, contentY),
+          offset
+        )
+      }
+
+    }
   }
 }

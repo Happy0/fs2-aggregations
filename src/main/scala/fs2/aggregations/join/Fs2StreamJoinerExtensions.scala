@@ -2,15 +2,7 @@ package fs2.aggregations.join
 
 import cats.effect.IO
 import fs2.{Pipe, Stream}
-import fs2.aggregations.join.models.{JoinRecord, StreamSource}
-
-case class JoinConfig[X, Y, CommitMetadata](
-    keyLeft: (X) => String,
-    keyRight: (Y) => String,
-    commitStoreLeft: Pipe[IO, CommitMetadata, Unit],
-    commitStoreRight: Pipe[IO, CommitMetadata, Unit]
-)
-
+import fs2.aggregations.join.models.{JoinConfig, JoinRecord, JoinedResult, StreamSource}
 object Fs2StreamJoinerExtensions {
   implicit class FS2StreamJoinMethods[
       X,
