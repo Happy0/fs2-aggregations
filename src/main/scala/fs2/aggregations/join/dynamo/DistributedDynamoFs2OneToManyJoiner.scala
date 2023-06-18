@@ -20,6 +20,10 @@ class DistributedDynamoFs2OneToManyJoiner[X, Y, CommitMetadata](
       clients.kafkaNotifier
     )
   override def sinkToStore(left: StreamSource[X, CommitMetadata], right: StreamSource[Y, CommitMetadata]): fs2.Stream[IO, Unit] = {
+
+    val rightKey = IO.realTimeInstant.map(_.toEpochMilli)
+
+
     ???
   }
   override def streamFromStore(): fs2.Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = ???

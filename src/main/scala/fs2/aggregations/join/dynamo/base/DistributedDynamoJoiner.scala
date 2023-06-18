@@ -26,7 +26,7 @@ class DistributedDynamoJoiner[X, Y, CommitMetadata](
 
   private def sinkStream[Z](
       stream: StreamSource[Z, CommitMetadata],
-      getSortKey: (Z) => IO[String]
+      getSortKey: IO[String]
   )(implicit codec: Codec[Z]): Stream[IO, Unit] = {
     val decoder = DynamoRecord.dynamoRecordDecoder[Z]
     val encoder = DynamoRecord.dynamoRecordEncoder[Z]
@@ -36,7 +36,7 @@ class DistributedDynamoJoiner[X, Y, CommitMetadata](
 
     val commitStream = for {
       x <- stream.source
-      sortKey <- Stream.eval(getSortKey(x.record))
+      sortKey <- Stream.eval(getSortKey)
       _ <- Stream.eval[IO, Unit](
         table
           .writeToTable(stream.key(x.record), sortKey, x.record)(
@@ -56,10 +56,10 @@ class DistributedDynamoJoiner[X, Y, CommitMetadata](
   def sink(
       streamLeft: StreamSource[X, CommitMetadata],
       streamRight: StreamSource[Y, CommitMetadata],
-      keyRight: (Y => IO[String])
+      sortKeyRight: IO[String]
   )(implicit codecLeft: Codec[X], codecRight: Codec[Y]): Stream[IO, Unit] = {
-    val leftSink = sinkStream(streamLeft, (x: _) => IO.pure("LEFT"))(codecLeft)
-    val rightSink = sinkStream[Y](streamRight, keyRight)(codecRight)
+    val leftSink = sinkStream(streamLeft, IO.pure("LEFT"))(codecLeft)
+    val rightSink = sinkStream[Y](streamRight, sortKeyRight)(codecRight)
 
     concurrentlyUntilBothComplete(leftSink, rightSink)
   }

@@ -28,7 +28,7 @@ final case class DistributedDynamoFs2OneToOneJoiner[X, Y, CommitMetadata](
       right: StreamSource[Y, CommitMetadata]
   ): Stream[IO, Unit] = {
 
-    distributedDynamoJoiner.sink(left, right, right => IO.pure("RIGHT"))(
+    distributedDynamoJoiner.sink(left, right, () => IO.pure("RIGHT"))(
       config.leftCodec,
       config.rightCodec
     )
