@@ -26,7 +26,7 @@ class DistributedDynamoJoiner[X, Y, CommitMetadata](
 
   private def sinkStream[Z](
       stream: StreamSource[Z, CommitMetadata],
-      getSortKey: (Z) => String
+      getSortKey: (Z) => IO[String]
   )(implicit codec: Codec[Z]): Stream[IO, Unit] = {
     val decoder = DynamoRecord.dynamoRecordDecoder[Z]
     val encoder = DynamoRecord.dynamoRecordEncoder[Z]
@@ -34,33 +34,34 @@ class DistributedDynamoJoiner[X, Y, CommitMetadata](
     implicit val autoCodec: Codec[DynamoRecord[Z]] =
       Codec.dynamoCodecFromEncoderAndDecoder(encoder, decoder)
 
-    stream.source
-      .evalMap((x) =>
+    val commitStream = for {
+      x <- stream.source
+      sortKey <- Stream.eval(getSortKey(x.record))
+      _ <- Stream.eval[IO, Unit](
         table
-          .writeToTable(stream.key(x.record), getSortKey(x.record), x.record)(
+          .writeToTable(stream.key(x.record), sortKey, x.record)(
             autoCodec
-          ) as x
+          )
       )
-      .evalMap(x =>
-        kafkaNotifier.publishNotificationToKafka(
-          stream.key(x.record),
-          getSortKey(x.record)
-        ) as x.commitMetadata
+      _ <- Stream.eval(
+        kafkaNotifier.publishNotificationToKafka(stream.key(x.record), sortKey)
       )
-      .through(stream.commitProcessed)
+    } yield {
+      x.commitMetadata
+    }
+
+    commitStream.through(stream.commitProcessed)
   }
 
   def sink(
       streamLeft: StreamSource[X, CommitMetadata],
       streamRight: StreamSource[Y, CommitMetadata],
-      keyLeft: (X) => String,
-      keyRight: (Y => String)
+      keyRight: (Y => IO[String])
   )(implicit codecLeft: Codec[X], codecRight: Codec[Y]): Stream[IO, Unit] = {
-    val leftSink = sinkStream(streamLeft, keyLeft)(codecLeft)
+    val leftSink = sinkStream(streamLeft, (x: _) => IO.pure("LEFT"))(codecLeft)
     val rightSink = sinkStream[Y](streamRight, keyRight)(codecRight)
 
     concurrentlyUntilBothComplete(leftSink, rightSink)
   }
 
 }
-
