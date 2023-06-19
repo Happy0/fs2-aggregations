@@ -1,15 +1,20 @@
 package fs2.aggregations.join.dynamo.base
 
 import cats.effect.IO
-import fs2.Stream
+import fs2.{Pipe, Stream}
 import fs2.aggregations.join.dynamo.clients.{DynamoRecordDB, KafkaNotifier}
-import fs2.aggregations.join.models.{JoinedResult, StreamSource}
+import fs2.aggregations.join.models.{
+  JoinRecord,
+  JoinedResult,
+  LeftStreamSource,
+  RightStreamSource
+}
 import fs2.aggregations.join.models.dynamo.DynamoRecord
 import fs2.aggregations.join.utils.StreamJoinUtils.concurrentlyUntilBothComplete
 import fs2.kafka.{CommittableConsumerRecord, CommittableOffset}
 import meteor.codec.Codec
 
-class DistributedDynamoJoiner[X, Y, CommitMetadata](
+class DistributedDynamoJoinerUtils[X, Y, CommitMetadata](
     table: DynamoRecordDB,
     kafkaNotifier: KafkaNotifier
 ) {
@@ -25,8 +30,10 @@ class DistributedDynamoJoiner[X, Y, CommitMetadata](
   }
 
   private def sinkStream[Z](
-      stream: StreamSource[Z, CommitMetadata],
-      getSortKey: (Z) => String
+      stream: Stream[IO, JoinRecord[Z, CommitMetadata]],
+      joinKey: (Z) => String,
+      getSortKey: (Z) => String,
+      commitProcessed: Pipe[IO, CommitMetadata, Unit]
   )(implicit codec: Codec[Z]): Stream[IO, Unit] = {
     val decoder = DynamoRecord.dynamoRecordDecoder[Z]
     val encoder = DynamoRecord.dynamoRecordEncoder[Z]
@@ -34,33 +41,45 @@ class DistributedDynamoJoiner[X, Y, CommitMetadata](
     implicit val autoCodec: Codec[DynamoRecord[Z]] =
       Codec.dynamoCodecFromEncoderAndDecoder(encoder, decoder)
 
-    stream.source
+    stream
       .evalMap((x) =>
         table
-          .writeToTable(stream.key(x.record), getSortKey(x.record), x.record)(
+          .writeToTable(
+            joinKey(x.record),
+            getSortKey(x.record),
+            x.record
+          )(
             autoCodec
           ) as x
       )
       .evalMap(x =>
         kafkaNotifier.publishNotificationToKafka(
-          stream.key(x.record),
+          joinKey(x.record),
           getSortKey(x.record)
         ) as x.commitMetadata
       )
-      .through(stream.commitProcessed)
+      .through(commitProcessed)
   }
 
   def sink(
-      streamLeft: StreamSource[X, CommitMetadata],
-      streamRight: StreamSource[Y, CommitMetadata],
-      keyLeft: (X) => String,
-      keyRight: (Y => String)
+      streamLeft: LeftStreamSource[X, CommitMetadata],
+      streamRight: RightStreamSource[Y, CommitMetadata]
   )(implicit codecLeft: Codec[X], codecRight: Codec[Y]): Stream[IO, Unit] = {
-    val leftSink = sinkStream(streamLeft, keyLeft)(codecLeft)
-    val rightSink = sinkStream[Y](streamRight, keyRight)(codecRight)
+    val leftSink = sinkStream[X](
+      streamLeft.source,
+      streamLeft.joinKey,
+      (x: X) => "LEFT",
+      streamLeft.commitProcessed
+    )(codecLeft)
+
+    val rightSink = sinkStream[Y](
+      streamRight.source,
+      streamRight.joinKey,
+      streamRight.sortKey,
+      streamRight.commitProcessed
+    )(codecRight)
 
     concurrentlyUntilBothComplete(leftSink, rightSink)
   }
 
 }
-

@@ -2,7 +2,7 @@ package fs2.aggregations.join
 
 import cats.effect.IO
 import fs2.{Pipe, Stream}
-import fs2.aggregations.join.models.{JoinConfig, JoinRecord, JoinedResult, StreamSource}
+import fs2.aggregations.join.models.{JoinConfig, JoinRecord, JoinedResult, LeftStreamSource}
 object Fs2StreamJoinerExtensions {
   implicit class FS2StreamJoinMethods[
       X,
@@ -22,14 +22,14 @@ object Fs2StreamJoinerExtensions {
         joinConfig: JoinConfig[X, Y, SourceCommitMetadata]
     ): Stream[IO, JoinedResult[X, Y, StoreCommitMetadata]] = {
       val leftSource =
-        StreamSource[X, SourceCommitMetadata](
+        LeftStreamSource[X, SourceCommitMetadata](
           fs2Stream,
           joinConfig.keyLeft,
           joinConfig.commitStoreLeft
         )
 
       val rightSource =
-        StreamSource[Y, SourceCommitMetadata](
+        LeftStreamSource[Y, SourceCommitMetadata](
           right,
           joinConfig.keyRight,
           joinConfig.commitStoreRight
@@ -45,13 +45,13 @@ object Fs2StreamJoinerExtensions {
     ): Stream[IO, JoinedResult[X, Y, StoreCommitMetadata]] = {
 
       val leftSource =
-        StreamSource[X, SourceCommitMetadata](
+        LeftStreamSource[X, SourceCommitMetadata](
           fs2Stream,
           joinConfig.keyLeft,
           joinConfig.commitStoreLeft
         )
       val rightSource =
-        StreamSource[Y, SourceCommitMetadata](
+        LeftStreamSource[Y, SourceCommitMetadata](
           right,
           joinConfig.keyRight,
           joinConfig.commitStoreRight

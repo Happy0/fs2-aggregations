@@ -18,6 +18,13 @@ final class DynamoRecordDB(table: CompositeTable[IO, String, String]) {
     table.put(record)(itemCodec)
   }
 
+  def getItem[X](
+      pk: String,
+      sk: String
+  )(implicit decoder: Decoder[DynamoRecord[X]]): IO[Option[DynamoRecord[X]]] =
+    table.get(pk, sk, true)
+
+
   def streamDynamoPartition[X, Y](
       pk: String
   )(implicit

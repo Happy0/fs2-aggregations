@@ -4,8 +4,8 @@ import cats.effect.{Async, ExitCode, IO, IOApp}
 import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
 import fs2.{Stream, _}
 import fs2.kafka.{AutoOffsetReset, CommittableOffset, ConsumerSettings, Deserializer, KafkaConsumer, KafkaProducer, ProducerSettings, Serializer, commitBatchWithin}
-import fs2.aggregations.join.models.{JoinConfig, JoinRecord, JoinedResult, StreamSource}
-import fs2.aggregations.join.dynamo.DistributedDynamoFs2OneToOneJoiner
+import fs2.aggregations.join.models.{JoinConfig, JoinRecord, JoinedResult, LeftStreamSource}
+import fs2.aggregations.join.dynamo.DistributedDynamoJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
 import fs2.kafka.consumer.KafkaConsume
 import meteor.codec.{Codec, Decoder, Encoder}
@@ -63,7 +63,7 @@ object Main extends IOApp {
 
     val dynamoClient = DynamoDbAsyncClient.create()
 
-    val joiner = DistributedDynamoFs2OneToOneJoiner[User, Hing, Unit](
+    val joiner = DistributedDynamoJoiner[User, Hing, Unit](
       config = DynamoStoreConfig(
         client = dynamoClient,
         tableName = "joinTableTest",
