@@ -128,7 +128,7 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
       clients.dynamoRecordDB
         .streamDynamoPartition(joinKey)
         .flatMap {
-          case Left(x)  => Stream.empty[IO, DynamoRecord[Y]]
+          case Left(x)  => Stream.empty
           case Right(x) => Stream.emit[IO, DynamoRecord[Y]](x)
         }
         .map(x =>

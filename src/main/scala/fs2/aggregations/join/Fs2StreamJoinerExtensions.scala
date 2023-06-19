@@ -2,7 +2,7 @@ package fs2.aggregations.join
 
 import cats.effect.IO
 import fs2.{Pipe, Stream}
-import fs2.aggregations.join.models.{JoinConfig, JoinRecord, JoinedResult, LeftStreamSource}
+import fs2.aggregations.join.models.{JoinRecord, JoinedResult, LeftStreamSource, OneToManyJoinConfig, OneToOneJoinConfig, RightStreamSource}
 object Fs2StreamJoinerExtensions {
   implicit class FS2StreamJoinMethods[
       X,
@@ -13,25 +13,26 @@ object Fs2StreamJoinerExtensions {
 
     def joinOneToOne(
         right: Stream[IO, JoinRecord[Y, SourceCommitMetadata]],
-        joiner: Fs2OneToOneJoiner[
+        joiner: Fs2StreamJoiner[
           X,
           Y,
           SourceCommitMetadata,
           StoreCommitMetadata
         ],
-        joinConfig: JoinConfig[X, Y, SourceCommitMetadata]
+        joinConfig: OneToOneJoinConfig[X, Y, SourceCommitMetadata]
     ): Stream[IO, JoinedResult[X, Y, StoreCommitMetadata]] = {
       val leftSource =
         LeftStreamSource[X, SourceCommitMetadata](
           fs2Stream,
-          joinConfig.keyLeft,
+          joinConfig.joinKeyLeft,
           joinConfig.commitStoreLeft
         )
 
       val rightSource =
-        LeftStreamSource[Y, SourceCommitMetadata](
+        RightStreamSource[Y, SourceCommitMetadata](
           right,
-          joinConfig.keyRight,
+          joinConfig.joinKeyRight,
+          (y: Y) => "RIGHT",
           joinConfig.commitStoreRight
         )
 
@@ -40,20 +41,21 @@ object Fs2StreamJoinerExtensions {
 
     def joinOneToMany(
         right: Stream[IO, JoinRecord[Y, SourceCommitMetadata]],
-        joiner: Fs2OneToManyJoiner[X, Y, SourceCommitMetadata, StoreCommitMetadata],
-        joinConfig: JoinConfig[X, Y, SourceCommitMetadata]
+        joiner: Fs2StreamJoiner[X, Y, SourceCommitMetadata, StoreCommitMetadata],
+        joinConfig: OneToManyJoinConfig[X, Y, SourceCommitMetadata]
     ): Stream[IO, JoinedResult[X, Y, StoreCommitMetadata]] = {
 
       val leftSource =
         LeftStreamSource[X, SourceCommitMetadata](
           fs2Stream,
-          joinConfig.keyLeft,
+          joinConfig.joinKeyLeft,
           joinConfig.commitStoreLeft
         )
       val rightSource =
-        LeftStreamSource[Y, SourceCommitMetadata](
+        RightStreamSource[Y, SourceCommitMetadata](
           right,
-          joinConfig.keyRight,
+          joinConfig.joinKeyRight,
+          joinConfig.sortKeyRight,
           joinConfig.commitStoreRight
         )
 

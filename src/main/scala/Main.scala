@@ -4,7 +4,7 @@ import cats.effect.{Async, ExitCode, IO, IOApp}
 import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
 import fs2.{Stream, _}
 import fs2.kafka.{AutoOffsetReset, CommittableOffset, ConsumerSettings, Deserializer, KafkaConsumer, KafkaProducer, ProducerSettings, Serializer, commitBatchWithin}
-import fs2.aggregations.join.models.{JoinConfig, JoinRecord, JoinedResult, LeftStreamSource}
+import fs2.aggregations.join.models.{OneToOneJoinConfig, JoinRecord, JoinedResult, LeftStreamSource}
 import fs2.aggregations.join.dynamo.DistributedDynamoJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
 import fs2.kafka.consumer.KafkaConsume
@@ -95,9 +95,9 @@ object Main extends IOApp {
       .joinOneToOne(
         stream2,
         joiner,
-        JoinConfig[User, Hing, Unit](
-          keyLeft = (x) => x.userId,
-          keyRight = (y) => y.userId,
+        OneToOneJoinConfig[User, Hing, Unit](
+          joinKeyLeft = (x) => x.userId,
+          joinKeyRight = (y) => y.userId,
           commitStoreLeft = (x) => x,
           commitStoreRight = (x) => x
         )
@@ -128,6 +128,10 @@ object Main extends IOApp {
       appStream <- getAppStream(producer, consumer)
         .evalMap(x => IO.println(x) as x)
         .map(x => JoinedResult.getOffset(x))
+        .flatMap({
+          case None => Stream.empty
+          case Some(x) => Stream.emit(x)
+        })
         .through(commitBatchWithin(100, 2.seconds))
     } yield { appStream }
 
