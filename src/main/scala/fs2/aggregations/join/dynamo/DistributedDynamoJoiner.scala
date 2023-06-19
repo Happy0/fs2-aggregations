@@ -67,8 +67,6 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
     val commitPrompt: CommitResult[X, Y, CommittableOffset[IO]] =
       CommitResult[X, Y, CommittableOffset[IO]](notification.offset)
 
-    val isLeftUpdate = sk == "LEFT"
-
     val x = for {
       left <- Stream.eval(
         clients.dynamoRecordDB.getItem[X](pk, "LEFT")(leftDecoder)
@@ -80,6 +78,8 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
             Stream.emit[IO, CommitResult[X, Y, CommittableOffset[IO]]](
               commitPrompt
             )
+          case Some(x) if sk != "LEFT" =>
+            limitedUpdateStream[X, Y](x, pk, sk, commitPrompt)(rightDecoder)
           case Some(x) => joinStream[X, Y](x, pk, commitPrompt)(eitherDecoder)
         }
 
@@ -87,6 +87,33 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
 
     x.flatten
 
+  }
+
+  private def limitedUpdateStream[X, Y](
+      leftItem: DynamoRecord[X],
+      joinKey: String,
+      sortKey: String,
+      commitResult: CommitResult[X, Y, CommittableOffset[IO]]
+  )(implicit
+      decoder: Decoder[DynamoRecord[Y]]
+  ): Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
+
+    val commitPromptStream
+        : Stream[IO, CommitResult[X, Y, CommittableOffset[IO]]] =
+      Stream.emit(commitResult)
+
+    val recordStream = for {
+      x <- Stream
+        .eval(clients.dynamoRecordDB.getItem[Y](joinKey, sortKey)(decoder))
+        .flatMap({
+          case None    => Stream.empty
+          case Some(y) => Stream.emit(y)
+        })
+    } yield {
+      FullJoinedResult[X, Y, CommittableOffset[IO]](leftItem.content, x.content)
+    }
+
+    recordStream.onComplete(commitPromptStream)
   }
 
   private def joinStream[X, Y](
@@ -100,12 +127,10 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
     val joinStream: Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] =
       clients.dynamoRecordDB
         .streamDynamoPartition(joinKey)
-        .flatMap(x =>
-          x match {
-            case Left(x)  => Stream.empty[IO, DynamoRecord[Y]]
-            case Right(x) => Stream.emit[IO, DynamoRecord[Y]](x)
-          }
-        )
+        .flatMap {
+          case Left(x)  => Stream.empty[IO, DynamoRecord[Y]]
+          case Right(x) => Stream.emit[IO, DynamoRecord[Y]](x)
+        }
         .map(x =>
           FullJoinedResult[X, Y, CommittableOffset[
             IO
