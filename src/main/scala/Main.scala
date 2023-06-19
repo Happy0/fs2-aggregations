@@ -1,7 +1,7 @@
 import Main.{Hing, User}
 import cats.effect.IO.pure
 import cats.effect.{Async, ExitCode, IO, IOApp}
-import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
+import fs2.aggregations.join.extensions.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
 import fs2.{Stream, _}
 import fs2.kafka.{
   AutoOffsetReset,

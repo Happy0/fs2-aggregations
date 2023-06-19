@@ -8,11 +8,12 @@ import fs2.aggregations.join.dynamo.clients.Clients
 import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
 import fs2.aggregations.join.models.{
   CommitResult,
-  JoinedValueResult,
   JoinedResult,
+  JoinedValueResult,
   LeftStreamSource,
   RightStreamSource
 }
+import fs2.aggregations.join.utils.StreamJoinUtils.concurrentlyUntilBothComplete
 import fs2.kafka.{CommittableConsumerRecord, CommittableOffset}
 import meteor.codec.Decoder
 
@@ -110,7 +111,10 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
           case Some(y) => Stream.emit(y)
         })
     } yield {
-      JoinedValueResult[X, Y, CommittableOffset[IO]](leftItem.content, x.content)
+      JoinedValueResult[X, Y, CommittableOffset[IO]](
+        leftItem.content,
+        x.content
+      )
     }
 
     recordStream.onComplete(commitPromptStream)
@@ -142,4 +146,29 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
     joinStream.onComplete(commitPromptStream)
   }
 
+  override def sinkToStoreParallel(
+      left: Stream[IO, LeftStreamSource[X, CommitMetadata]],
+      right: Stream[IO, RightStreamSource[Y, CommitMetadata]]
+  ): Stream[IO, Unit] = {
+
+    val lefts = left.map(x =>
+      baseDistributedDynamoJoiner.sinkStream[X](
+        x.source,
+        x.joinKey,
+        (x: X) => "LEFT",
+        x.commitProcessed
+      )(config.leftCodec)
+    )
+
+    val rights = right.map(x =>
+      baseDistributedDynamoJoiner.sinkStream[Y](
+        x.source,
+        x.joinKey,
+        x.sortKey,
+        x.commitProcessed
+      )(config.rightCodec)
+    )
+
+    concurrentlyUntilBothComplete(lefts, rights).parJoinUnbounded
+  }
 }

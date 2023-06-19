@@ -1,18 +1,24 @@
-package fs2.aggregations.join
+package fs2.aggregations.join.extensions
 
 import cats.effect.IO
-import fs2.{Pipe, Stream}
-import fs2.aggregations.join.models.{JoinRecord, JoinedResult, LeftStreamSource, OneToManyJoinConfig, OneToOneJoinConfig, RightStreamSource}
-object Fs2StreamJoinerExtensions {
-  implicit class FS2StreamJoinMethods[
+import fs2.aggregations.join.models.{
+  JoinRecord,
+  JoinedResult,
+  OneToOneJoinConfig
+}
+import fs2.Stream
+import fs2.aggregations.join.Fs2StreamJoiner
+import fs2.aggregations.join.models._
+class Fs2ParallelStreamJoinerExtensions {
+  implicit class FS2StreamParallelJoinMethods[
       X,
       Y,
       SourceCommitMetadata,
       StoreCommitMetadata
-  ](fs2Stream: Stream[IO, JoinRecord[X, SourceCommitMetadata]]) {
+  ](fs2Stream: Stream[IO, Stream[IO, JoinRecord[X, SourceCommitMetadata]]]) {
 
     def joinOneToOne(
-        right: Stream[IO, JoinRecord[Y, SourceCommitMetadata]],
+        right: Stream[IO, Stream[IO, JoinRecord[Y, SourceCommitMetadata]]],
         joiner: Fs2StreamJoiner[
           X,
           Y,
@@ -21,47 +27,55 @@ object Fs2StreamJoinerExtensions {
         ],
         joinConfig: OneToOneJoinConfig[X, Y, SourceCommitMetadata]
     ): Stream[IO, JoinedResult[X, Y, StoreCommitMetadata]] = {
-      val leftSource =
+      val leftSource = fs2Stream.map(x =>
         LeftStreamSource[X, SourceCommitMetadata](
-          fs2Stream,
+          x,
           joinConfig.joinKeyLeft,
           joinConfig.commitStoreLeft
         )
+      )
 
-      val rightSource =
+      val rightSource = right.map(x =>
         RightStreamSource[Y, SourceCommitMetadata](
-          right,
+          x,
           joinConfig.joinKeyRight,
           (y: Y) => "RIGHT",
           joinConfig.commitStoreRight
         )
+      )
 
-      joiner.join(leftSource, rightSource)
+      joiner.joinParallel(leftSource, rightSource)
     }
-
     def joinOneToMany(
-        right: Stream[IO, JoinRecord[Y, SourceCommitMetadata]],
-        joiner: Fs2StreamJoiner[X, Y, SourceCommitMetadata, StoreCommitMetadata],
+        right: Stream[IO, Stream[IO, JoinRecord[Y, SourceCommitMetadata]]],
+        joiner: Fs2StreamJoiner[
+          X,
+          Y,
+          SourceCommitMetadata,
+          StoreCommitMetadata
+        ],
         joinConfig: OneToManyJoinConfig[X, Y, SourceCommitMetadata]
     ): Stream[IO, JoinedResult[X, Y, StoreCommitMetadata]] = {
 
-      val leftSource =
+      val leftSource = fs2Stream.map(x =>
         LeftStreamSource[X, SourceCommitMetadata](
-          fs2Stream,
+          x,
           joinConfig.joinKeyLeft,
           joinConfig.commitStoreLeft
         )
-      val rightSource =
+      )
+
+      val rightSource = right.map(x =>
         RightStreamSource[Y, SourceCommitMetadata](
-          right,
+          x,
           joinConfig.joinKeyRight,
           joinConfig.sortKeyRight,
           joinConfig.commitStoreRight
         )
+      )
 
-      joiner.join(leftSource, rightSource)
+      joiner.joinParallel(leftSource, rightSource)
     }
 
   }
-
 }

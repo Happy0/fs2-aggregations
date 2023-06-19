@@ -52,7 +52,7 @@ class BaseDistributedDynamoJoiner[X, Y, CommitMetadata](
     concurrentlyUntilBothComplete(leftSink, rightSink)
   }
 
-  private def sinkStream[Z](
+  def sinkStream[Z](
       stream: Stream[IO, JoinRecord[Z, CommitMetadata]],
       joinKey: (Z) => String,
       getSortKey: (Z) => String,
