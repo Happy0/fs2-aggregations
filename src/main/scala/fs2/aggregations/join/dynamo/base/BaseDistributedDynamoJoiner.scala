@@ -14,7 +14,7 @@ import fs2.aggregations.join.utils.StreamJoinUtils.concurrentlyUntilBothComplete
 import fs2.kafka.{CommittableConsumerRecord, CommittableOffset}
 import meteor.codec.Codec
 
-class DistributedDynamoJoinerUtils[X, Y, CommitMetadata](
+class BaseDistributedDynamoJoiner[X, Y, CommitMetadata](
     table: DynamoRecordDB,
     kafkaNotifier: KafkaNotifier
 ) {
@@ -27,6 +27,27 @@ class DistributedDynamoJoinerUtils[X, Y, CommitMetadata](
     kafkaNotifier
       .subscribeToNotifications()
       .flatMap(item => onUpdate(item))
+  }
+
+  def sink(
+      streamLeft: LeftStreamSource[X, CommitMetadata],
+      streamRight: RightStreamSource[Y, CommitMetadata]
+  )(implicit codecLeft: Codec[X], codecRight: Codec[Y]): Stream[IO, Unit] = {
+    val leftSink = sinkStream[X](
+      streamLeft.source,
+      streamLeft.joinKey,
+      (x: X) => "LEFT",
+      streamLeft.commitProcessed
+    )(codecLeft)
+
+    val rightSink = sinkStream[Y](
+      streamRight.source,
+      streamRight.joinKey,
+      streamRight.sortKey,
+      streamRight.commitProcessed
+    )(codecRight)
+
+    concurrentlyUntilBothComplete(leftSink, rightSink)
   }
 
   private def sinkStream[Z](
@@ -59,27 +80,6 @@ class DistributedDynamoJoinerUtils[X, Y, CommitMetadata](
         ) as x.commitMetadata
       )
       .through(commitProcessed)
-  }
-
-  def sink(
-      streamLeft: LeftStreamSource[X, CommitMetadata],
-      streamRight: RightStreamSource[Y, CommitMetadata]
-  )(implicit codecLeft: Codec[X], codecRight: Codec[Y]): Stream[IO, Unit] = {
-    val leftSink = sinkStream[X](
-      streamLeft.source,
-      streamLeft.joinKey,
-      (x: X) => "LEFT",
-      streamLeft.commitProcessed
-    )(codecLeft)
-
-    val rightSink = sinkStream[Y](
-      streamRight.source,
-      streamRight.joinKey,
-      streamRight.sortKey,
-      streamRight.commitProcessed
-    )(codecRight)
-
-    concurrentlyUntilBothComplete(leftSink, rightSink)
   }
 
 }

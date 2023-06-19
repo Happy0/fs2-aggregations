@@ -1,7 +1,7 @@
 package fs2.aggregations.join.models
 sealed trait JoinedResult[X, Y, CommitMetadata]
 
-case class FullJoinedResult[X, Y, CommitMetadata](
+case class JoinedValueResult[X, Y, CommitMetadata](
     value: (X, Y)
 ) extends JoinedResult[X, Y, CommitMetadata]
 
@@ -14,7 +14,7 @@ object JoinedResult {
       joinedResult: JoinedResult[X, Y, CommitMetadata]
   ): Option[CommitMetadata] = {
     joinedResult match {
-      case x: FullJoinedResult[X, Y, CommitMetadata]    => None
+      case x: JoinedValueResult[X, Y, CommitMetadata]    => None
       case z: CommitResult[X,Y, CommitMetadata] => Some(z.commitMetadata)
     }
   }

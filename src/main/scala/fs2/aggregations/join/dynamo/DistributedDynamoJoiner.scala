@@ -3,12 +3,12 @@ package fs2.aggregations.join.dynamo
 import cats.effect.IO
 import fs2.Stream
 import fs2.aggregations.join.Fs2StreamJoiner
-import fs2.aggregations.join.dynamo.base.DistributedDynamoJoinerUtils
+import fs2.aggregations.join.dynamo.base.BaseDistributedDynamoJoiner
 import fs2.aggregations.join.dynamo.clients.Clients
 import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
 import fs2.aggregations.join.models.{
   CommitResult,
-  FullJoinedResult,
+  JoinedValueResult,
   JoinedResult,
   LeftStreamSource,
   RightStreamSource
@@ -22,8 +22,8 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
 
   private val clients = Clients(config)
 
-  private val distributedDynamoJoinerUtils =
-    new DistributedDynamoJoinerUtils[X, Y, CommitMetadata](
+  private val baseDistributedDynamoJoiner =
+    new BaseDistributedDynamoJoiner[X, Y, CommitMetadata](
       clients.dynamoRecordDB,
       clients.kafkaNotifier
     )
@@ -32,7 +32,7 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
       right: RightStreamSource[Y, CommitMetadata]
   ): Stream[IO, Unit] = {
 
-    distributedDynamoJoinerUtils.sink(left, right)(
+    baseDistributedDynamoJoiner.sink(left, right)(
       config.leftCodec,
       config.rightCodec
     )
@@ -48,7 +48,7 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
     implicit val rightDecoder =
       DynamoRecord.dynamoRecordDecoder(config.rightCodec)
 
-    distributedDynamoJoinerUtils.streamFromStore(x =>
+    baseDistributedDynamoJoiner.streamFromStore(x =>
       joinResults(x)(leftDecoder, rightDecoder, eitherDecoder)
     )
   }
@@ -110,7 +110,7 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
           case Some(y) => Stream.emit(y)
         })
     } yield {
-      FullJoinedResult[X, Y, CommittableOffset[IO]](leftItem.content, x.content)
+      JoinedValueResult[X, Y, CommittableOffset[IO]](leftItem.content, x.content)
     }
 
     recordStream.onComplete(commitPromptStream)
@@ -124,7 +124,7 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
       eitherDecoder: Decoder[Either[DynamoRecord[X], DynamoRecord[Y]]]
   ): Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
 
-    val joinStream: Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] =
+    val joinStream =
       clients.dynamoRecordDB
         .streamDynamoPartition(joinKey)
         .flatMap {
@@ -132,14 +132,12 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
           case Right(x) => Stream.emit[IO, DynamoRecord[Y]](x)
         }
         .map(x =>
-          FullJoinedResult[X, Y, CommittableOffset[
+          JoinedValueResult[X, Y, CommittableOffset[
             IO
           ]]((leftItem.content, x.content))
         )
 
-    val commitPromptStream
-        : Stream[IO, CommitResult[X, Y, CommittableOffset[IO]]] =
-      Stream.emit(commitResult)
+    val commitPromptStream = Stream.emit(commitResult)
 
     joinStream.onComplete(commitPromptStream)
   }
