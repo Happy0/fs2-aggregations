@@ -24,9 +24,11 @@ class BaseDistributedDynamoJoiner[X, Y, CommitMetadata](
           CommittableConsumerRecord[IO, String, String]
       ) => Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]]
   ): Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
+    // Concurrency per partition, but order retained within partition
     kafkaNotifier
       .subscribeToNotifications()
-      .flatMap(item => onUpdate(item))
+      .map(partitionStream => partitionStream.flatMap(onUpdate))
+      .parJoinUnbounded
   }
 
   def sink(

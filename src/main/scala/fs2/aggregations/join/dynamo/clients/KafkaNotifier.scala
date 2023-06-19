@@ -16,7 +16,7 @@ class KafkaNotifier(
 ) {
 
   def subscribeToNotifications(
-  ): Stream[IO, CommittableConsumerRecord[IO, String, String]] = {
+  ): Stream[IO, Stream[IO, CommittableConsumerRecord[IO, String, String]]] = {
     for {
       _ <- Stream.eval(
         kafkaConsumer.subscribeTo(
@@ -24,7 +24,8 @@ class KafkaNotifier(
         )
       )
 
-      stream <- kafkaConsumer.records
+      stream <- kafkaConsumer.partitionedRecords
+
     } yield { stream }
   }
 

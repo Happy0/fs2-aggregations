@@ -3,8 +3,23 @@ import cats.effect.IO.pure
 import cats.effect.{Async, ExitCode, IO, IOApp}
 import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
 import fs2.{Stream, _}
-import fs2.kafka.{AutoOffsetReset, CommittableOffset, ConsumerSettings, Deserializer, KafkaConsumer, KafkaProducer, ProducerSettings, Serializer, commitBatchWithin}
-import fs2.aggregations.join.models.{OneToOneJoinConfig, JoinRecord, JoinedResult, LeftStreamSource}
+import fs2.kafka.{
+  AutoOffsetReset,
+  CommittableOffset,
+  ConsumerSettings,
+  Deserializer,
+  KafkaConsumer,
+  KafkaProducer,
+  ProducerSettings,
+  Serializer,
+  commitBatchWithin
+}
+import fs2.aggregations.join.models.{
+  JoinRecord,
+  JoinedResult,
+  LeftStreamSource,
+  OneToOneJoinConfig
+}
 import fs2.aggregations.join.dynamo.DistributedDynamoJoiner
 import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
 import fs2.kafka.consumer.KafkaConsume
@@ -86,7 +101,8 @@ object Main extends IOApp {
     val stream2: Stream[IO, JoinRecord[Hing, Unit]] =
       Stream(
         Hing("1", "Nose picking"),
-        Hing("2", "Cheese eating")
+        Hing("2", "Cheese eating"),
+        Hing("1", "Fannying aboot")
       )
         .evalMap(x => IO.sleep(5.seconds) >> pure(x))
         .map(x => JoinRecord(x, ()))
@@ -129,7 +145,7 @@ object Main extends IOApp {
         .evalMap(x => IO.println(x) as x)
         .map(x => JoinedResult.getOffset(x))
         .flatMap({
-          case None => Stream.empty
+          case None    => Stream.empty
           case Some(x) => Stream.emit(x)
         })
         .through(commitBatchWithin(100, 2.seconds))
