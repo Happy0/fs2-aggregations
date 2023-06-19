@@ -74,12 +74,14 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
         clients.dynamoRecordDB.getItem[X](pk, "LEFT")(leftDecoder)
       )
 
-      result: Stream[IO, JoinedResult[DynamoRecord[X], DynamoRecord[
-        Y
-      ], CommittableOffset[IO]]] = left match {
-        case None => Stream.emit[IO, CommitResult[X, Y, CommittableOffset[IO]]](commitPrompt)
-        case Some(x) => joinStream[X,Y](x, pk, commitPrompt)(eitherDecoder)
-      }
+      result: Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] =
+        left match {
+          case None =>
+            Stream.emit[IO, CommitResult[X, Y, CommittableOffset[IO]]](
+              commitPrompt
+            )
+          case Some(x) => joinStream[X, Y](x, pk, commitPrompt)(eitherDecoder)
+        }
 
     } yield result
 
@@ -93,25 +95,22 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
       commitResult: CommitResult[X, Y, CommittableOffset[IO]]
   )(implicit
       eitherDecoder: Decoder[Either[DynamoRecord[X], DynamoRecord[Y]]]
-  ): Stream[IO, JoinedResult[DynamoRecord[X], DynamoRecord[
-    Y
-  ], CommittableOffset[IO]]] = {
+  ): Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] = {
 
-    val joinStream: Stream[IO, JoinedResult[DynamoRecord[X], DynamoRecord[
-      Y
-    ], CommittableOffset[IO]]] = clients.dynamoRecordDB
-      .streamDynamoPartition(joinKey)
-      .flatMap(x =>
-        x match {
-          case Left(x)  => Stream.empty[IO, DynamoRecord[Y]]
-          case Right(x) => Stream.emit[IO, DynamoRecord[Y]](x)
-        }
-      )
-      .map(x =>
-        FullJoinedResult[DynamoRecord[X], DynamoRecord[Y], CommittableOffset[
-          IO
-        ]]((leftItem, x))
-      )
+    val joinStream: Stream[IO, JoinedResult[X, Y, CommittableOffset[IO]]] =
+      clients.dynamoRecordDB
+        .streamDynamoPartition(joinKey)
+        .flatMap(x =>
+          x match {
+            case Left(x)  => Stream.empty[IO, DynamoRecord[Y]]
+            case Right(x) => Stream.emit[IO, DynamoRecord[Y]](x)
+          }
+        )
+        .map(x =>
+          FullJoinedResult[X, Y, CommittableOffset[
+            IO
+          ]]((leftItem.content, x.content))
+        )
 
     val commitPromptStream
         : Stream[IO, CommitResult[X, Y, CommittableOffset[IO]]] =
