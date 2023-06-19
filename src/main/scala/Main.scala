@@ -1,4 +1,4 @@
-import Main.Hing
+import Main.{Hing, User}
 import cats.effect.IO.pure
 import cats.effect.{Async, ExitCode, IO, IOApp}
 import fs2.aggregations.join.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
@@ -18,6 +18,7 @@ import fs2.aggregations.join.models.{
   JoinRecord,
   JoinedResult,
   LeftStreamSource,
+  OneToManyJoinConfig,
   OneToOneJoinConfig
 }
 import fs2.aggregations.join.dynamo.DistributedDynamoJoiner
@@ -37,7 +38,7 @@ object Main extends IOApp {
   implicit val F = Async[IO]
 
   case class User(userId: String, name: String)
-  case class Hing(userId: String, hing: String)
+  case class Hing(userId: String, hingId: String, hing: String)
 
   object User {
 
@@ -59,7 +60,11 @@ object Main extends IOApp {
   object Hing {
     implicit val userEncoder: Encoder[Hing] = new Encoder[Hing] {
       override def write(a: Hing): AttributeValue =
-        Map("userId" -> a.userId, "hing" -> a.hing).asAttributeValue
+        Map(
+          "userId" -> a.userId,
+          "hing" -> a.hing,
+          "hingId" -> a.hingId
+        ).asAttributeValue
     }
 
     implicit val userDecoder: Decoder[Hing] = new Decoder[Hing] {
@@ -67,7 +72,8 @@ object Main extends IOApp {
         for {
           userId <- av.getAs[String]("userId")
           hing <- av.getAs[String]("hing")
-        } yield Hing(userId, hing)
+          hingId <- av.getAs[String]("hingId")
+        } yield Hing(userId, hingId, hing)
     }
   }
 
@@ -93,27 +99,30 @@ object Main extends IOApp {
     val stream1: Stream[IO, JoinRecord[User, Unit]] =
       Stream(
         User("1", "Jimmy"),
-        User("2", "Michael")
+        User("2", "Michael"),
+        User("1", "Jim")
       )
-        //.evalMap(x => IO.sleep(15.seconds) as x)
+        .evalMap(x => IO.sleep(15.seconds) as x)
         .map(x => JoinRecord(x, ()))
 
     val stream2: Stream[IO, JoinRecord[Hing, Unit]] =
       Stream(
-        Hing("1", "Nose picking"),
-        Hing("2", "Cheese eating"),
-        Hing("1", "Fannying aboot")
+        Hing("1", "a", "Nose picking"),
+        Hing("2", "b", "Cheese eating"),
+        Hing("1", "c", "Fannying aboot"),
+        Hing("1", "c", "Mair fannying aboot")
       )
         .evalMap(x => IO.sleep(5.seconds) >> pure(x))
         .map(x => JoinRecord(x, ()))
 
     stream1
-      .joinOneToOne(
+      .joinOneToMany(
         stream2,
         joiner,
-        OneToOneJoinConfig[User, Hing, Unit](
+        OneToManyJoinConfig[User, Hing, Unit](
           joinKeyLeft = (x) => x.userId,
           joinKeyRight = (y) => y.userId,
+          sortKeyRight = (y) => y.hingId,
           commitStoreLeft = (x) => x,
           commitStoreRight = (x) => x
         )
