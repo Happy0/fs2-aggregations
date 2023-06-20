@@ -26,6 +26,8 @@ class KafkaNotifier(
 
       stream <- kafkaConsumer.partitionedRecords
 
+      _ <- kafkaConsumer.partitionsMapStream
+
     } yield { stream }
   }
 
