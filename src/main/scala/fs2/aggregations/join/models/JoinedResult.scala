@@ -1,6 +1,5 @@
 package fs2.aggregations.join.models
 sealed trait JoinedResult[X, Y, CommitMetadata]
-
 case class JoinedValueResult[X, Y, CommitMetadata](
     value: (X, Y)
 ) extends JoinedResult[X, Y, CommitMetadata]

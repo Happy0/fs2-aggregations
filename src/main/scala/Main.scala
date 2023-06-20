@@ -33,6 +33,8 @@ import fs2._
 
 import scala.concurrent.duration.DurationInt
 
+import fs2.aggregations.join.extensions.dynamo.DistributedDynamoJoinerExtensions.DistributedDynamoJoinerMethods
+
 object Main extends IOApp {
 
   implicit val F = Async[IO]
@@ -151,13 +153,10 @@ object Main extends IOApp {
       consumer <- KafkaConsumer
         .stream(consumerSettings)
       appStream <- getAppStream(producer, consumer)
-        .evalMap(x => IO.println(x) as x)
-        .map(x => JoinedResult.getOffset(x))
-        .flatMap({
-          case None    => Stream.empty
-          case Some(x) => Stream.emit(x)
-        })
-        .through(commitBatchWithin(100, 2.seconds))
+        .processJoin(
+          joinedStream => joinedStream.evalMap(x => IO.println(x)),
+          commitBatchWithin(100, 2.seconds)
+        )
     } yield { appStream }
 
     appStream.compile.drain.void.map(_ => ExitCode.Success)
