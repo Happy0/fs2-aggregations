@@ -1,6 +1,5 @@
 package example
 
-import Main.{Hing, User}
 import cats.effect.IO.pure
 import cats.effect.{Async, ExitCode, IO, IOApp}
 import fs2.aggregations.join.extensions.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
@@ -82,9 +81,9 @@ object Main extends IOApp {
   }
 
   private def getAppStream(
-                            kafkaProducer: KafkaProducer[IO, String, String],
-                            kafkaConsumer: KafkaConsumer[IO, String, String]
-                          ): Stream[IO, JoinedResult[User, Hing, CommittableOffset[IO]]] = {
+      kafkaProducer: KafkaProducer[IO, String, String],
+      kafkaConsumer: KafkaConsumer[IO, String, String]
+  ): Stream[IO, JoinedResult[User, Hing, CommittableOffset[IO]]] = {
 
     val dynamoClient = DynamoDbAsyncClient.create()
 

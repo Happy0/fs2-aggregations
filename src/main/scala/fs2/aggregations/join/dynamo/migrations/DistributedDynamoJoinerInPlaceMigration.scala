@@ -20,7 +20,14 @@ class DistributedDynamoJoinerInPlaceMigration[
       NewTypeRight
     ]
 ) {
-  private def getRole(): IO[MigratorRole] = ???
+
+  private def attemptToWriteLock(): IO[Boolean] = {
+    ???
+  }
+
+  private def getRole(): IO[MigratorRole] = for {
+    lockTaken <- attemptToWriteLock()
+  } yield if (lockTaken) Migrator else Waiter
 
   private def waitForMigrationToFinish(): IO[Unit] = ???
 
@@ -28,21 +35,16 @@ class DistributedDynamoJoinerInPlaceMigration[
       transformLeft: (OldTypeLeft) => IO[NewTypeLeft],
       transformRight: (OldTypeRight) => IO[NewTypeRight]
   ): IO[Unit] = ???
-  private def performRole(
-      role: MigratorRole,
-      transformLeft: (OldTypeLeft) => IO[NewTypeLeft],
-      transformRight: (OldTypeRight) => IO[NewTypeRight]
-  ): IO[Unit] = role match {
-    case Waiter => waitForMigrationToFinish()
-    case Migrator => performMigration(transformLeft, transformRight)
-  }
-
+  
   def migrateInPlace(
       transformLeft: (OldTypeLeft) => IO[NewTypeLeft],
       transformRight: (OldTypeRight) => IO[NewTypeRight]
   ): IO[Unit] = for {
     role <- getRole()
-    _ <- performRole(role, transformLeft, transformRight)
+    _ <- role match {
+      case Waiter => waitForMigrationToFinish()
+      case Migrator => performMigration(transformLeft, transformRight)
+    }
   } yield {}
 
 }
