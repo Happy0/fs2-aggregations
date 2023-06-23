@@ -7,7 +7,6 @@ import fs2.kafka.KafkaProducer
 import meteor.api.hi.CompositeTable
 import meteor.codec.{Codec, Decoder}
 object StreamJoinUtils {
-
   private def notifyFinished(deferred: Deferred[IO, Unit]) =
     Stream.eval(deferred.complete().void)
 

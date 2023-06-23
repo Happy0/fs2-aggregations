@@ -1,7 +1,7 @@
 package fs2.aggregations.join.dynamo.clients
 
 import cats.effect.IO
-import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
+import fs2.aggregations.join.models.dynamo.config.DynamoStoreConfig
 import meteor.{DynamoDbType, KeyDef}
 import meteor.api.hi.CompositeTable
 

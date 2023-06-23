@@ -5,7 +5,8 @@ import fs2.Stream
 import fs2.aggregations.join.Fs2StreamJoiner
 import fs2.aggregations.join.dynamo.base.BaseDistributedDynamoJoiner
 import fs2.aggregations.join.dynamo.clients.Clients
-import fs2.aggregations.join.models.dynamo.{DynamoRecord, DynamoStoreConfig}
+import fs2.aggregations.join.models.dynamo.DynamoRecord
+import fs2.aggregations.join.models.dynamo.config.DynamoStoreConfig
 import fs2.aggregations.join.models.{
   CommitResult,
   JoinedResult,

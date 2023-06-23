@@ -1,4 +1,4 @@
-package fs2.aggregations.join.models.dynamo
+package fs2.aggregations.join.models.dynamo.config
 
 import cats.effect.IO
 import fs2.kafka.{KafkaConsumer, KafkaProducer}

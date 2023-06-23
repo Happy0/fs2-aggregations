@@ -1,3 +1,5 @@
+package example
+
 import Main.{Hing, User}
 import cats.effect.IO.pure
 import cats.effect.{Async, ExitCode, IO, IOApp}
@@ -22,7 +24,6 @@ import fs2.aggregations.join.models.{
   OneToOneJoinConfig
 }
 import fs2.aggregations.join.dynamo.DistributedDynamoJoiner
-import fs2.aggregations.join.models.dynamo.DynamoStoreConfig
 import fs2.kafka.consumer.KafkaConsume
 import meteor.codec.{Codec, Decoder, Encoder}
 import meteor.errors
@@ -34,6 +35,7 @@ import fs2._
 import scala.concurrent.duration.DurationInt
 
 import fs2.aggregations.join.extensions.dynamo.DistributedDynamoJoinerExtensions.DistributedDynamoJoinerMethods
+import fs2.aggregations.join.models.dynamo.config.DynamoStoreConfig
 
 object Main extends IOApp {
 
@@ -80,9 +82,9 @@ object Main extends IOApp {
   }
 
   private def getAppStream(
-      kafkaProducer: KafkaProducer[IO, String, String],
-      kafkaConsumer: KafkaConsumer[IO, String, String]
-  ): Stream[IO, JoinedResult[User, Hing, CommittableOffset[IO]]] = {
+                            kafkaProducer: KafkaProducer[IO, String, String],
+                            kafkaConsumer: KafkaConsumer[IO, String, String]
+                          ): Stream[IO, JoinedResult[User, Hing, CommittableOffset[IO]]] = {
 
     val dynamoClient = DynamoDbAsyncClient.create()
 
