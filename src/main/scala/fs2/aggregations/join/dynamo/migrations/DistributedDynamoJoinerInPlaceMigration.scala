@@ -1,19 +1,15 @@
 package fs2.aggregations.join.dynamo.migrations
 
 import cats.effect.IO
-import fs2.aggregations.join.models.dynamo.migration.{
-  DynamoInPlaceMigrationConfig,
-  LockRow,
-  Migrator,
-  MigratorRole,
-  Waiter
-}
-import meteor.{DynamoDbType, Expression, KeyDef}
+import fs2.aggregations.join.models.dynamo.DynamoRecord
+import fs2.aggregations.join.models.dynamo.migration.{DynamoInPlaceMigrationConfig, LockRow, Migrator, MigratorRole, Waiter}
+import meteor.{Client, DynamoDbType, Expression, KeyDef}
 import meteor.api.hi.CompositeTable
 import meteor.errors.ConditionalCheckFailed
 
 import java.time.Duration
 import scala.concurrent.duration.DurationInt
+import fs2.Stream
 
 class DistributedDynamoJoinerInPlaceMigration[
     OldTypeLeft,
@@ -44,6 +40,8 @@ class DistributedDynamoJoinerInPlaceMigration[
       KeyDef[String]("SK", DynamoDbType.S),
       config.client
     )
+
+  val client: Client[IO] = Client.apply(config.client)
 
   private def attemptToWriteLock(): IO[Boolean] = {
 
@@ -115,11 +113,16 @@ class DistributedDynamoJoinerInPlaceMigration[
       transformLeft: (OldTypeLeft) => IO[NewTypeLeft],
       transformRight: (OldTypeRight) => IO[NewTypeRight]
   ): IO[Unit] = {
-    for {
-      _ <- IO.println("Starting migration")
 
+    val codec = DynamoRecord.eitherDecoder(config.oldLeftCodec, config.oldRightCodec)
+
+    val migrateStream = for {
+      _ <- Stream.eval(IO.println("Starting migration"))
+      x = client.scan[Either[DynamoRecord[OldTypeLeft], DynamoRecord[OldTypeRight]]](config.oldTableName, true, 14)(codec)
+      // ... wip
     } yield {}
 
+    migrateStream.compile.drain
   }
 
   def migrateInPlace(
