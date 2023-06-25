@@ -8,11 +8,12 @@ case class DynamoInPlaceMigrationConfig[
     NewTypeLeft,
     NewTypeRight
 ](
-    client: DynamoDbAsyncClient,
-    tableName: String,
-    kafkaNotificationTopic: String,
-    oldLeftCodec: Codec[OldTypeLeft],
-    oldRightCodec: Codec[OldTypeRight],
-    newLeftCodec: Codec[NewTypeLeft],
-    newRightCodec: Codec[NewTypeRight],
+   client: DynamoDbAsyncClient,
+   oldTableName: String,
+   newTableName: String,
+   kafkaNotificationTopic: String,
+   oldLeftCodec: Codec[OldTypeLeft],
+   oldRightCodec: Codec[OldTypeRight],
+   newLeftCodec: Codec[NewTypeLeft],
+   newRightCodec: Codec[NewTypeRight],
 )

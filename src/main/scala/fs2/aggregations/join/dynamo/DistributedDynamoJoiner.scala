@@ -51,7 +51,7 @@ final case class DistributedDynamoJoiner[X, Y, CommitMetadata](
       DynamoRecord.dynamoRecordDecoder(config.rightCodec)
 
     baseDistributedDynamoJoiner.streamFromStore(x =>
-      joinResults(x)(leftDecoder, rightDecoder, eitherDecoder)
+      joinResu lts(x)(leftDecoder, rightDecoder, eitherDecoder)
     )
   }
 
