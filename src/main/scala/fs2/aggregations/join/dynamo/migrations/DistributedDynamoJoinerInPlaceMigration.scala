@@ -110,24 +110,31 @@ class DistributedDynamoJoinerInPlaceMigration[
   }
 
   private def performMigration(
-      transformLeft: (OldTypeLeft) => IO[NewTypeLeft],
-      transformRight: (OldTypeRight) => IO[NewTypeRight]
+      transformLeft: (DynamoRecord[OldTypeLeft]) => IO[DynamoRecord[NewTypeLeft]],
+      transformRight: (DynamoRecord[OldTypeRight]) => IO[DynamoRecord[NewTypeRight]]
   ): IO[Unit] = {
 
-    val codec = DynamoRecord.eitherDecoder(config.oldLeftCodec, config.oldRightCodec)
+    val oldRecordDecoder = DynamoRecord.eitherDecoder(config.oldLeftCodec, config.oldRightCodec)
+
+    implicit val newLeftEncoder = DynamoRecord.dynamoRecordEncoder(config.newLeftCodec)
+    implicit val newRightEncoder = DynamoRecord.dynamoRecordEncoder(config.newRightCodec)
 
     val migrateStream = for {
       _ <- Stream.eval(IO.println("Starting migration"))
-      x = client.scan[Either[DynamoRecord[OldTypeLeft], DynamoRecord[OldTypeRight]]](config.oldTableName, true, 14)(codec)
-      // ... wip
+      item <- client.scan[Either[DynamoRecord[OldTypeLeft], DynamoRecord[OldTypeRight]]](config.oldTableName, true, 14)(oldRecordDecoder)
+      _ <- item match {
+        case Left(oldTypeLeft) => Stream.eval(transformLeft(oldTypeLeft).flatMap(newTable.put(_)))
+        case Right(oldRightType) => Stream.eval(transformRight(oldRightType).flatMap(newTable.put(_)))
+      }
+
     } yield {}
 
     migrateStream.compile.drain
   }
 
   def migrateInPlace(
-      transformLeft: (OldTypeLeft) => IO[NewTypeLeft],
-      transformRight: (OldTypeRight) => IO[NewTypeRight]
+      transformLeft: DynamoRecord[OldTypeLeft] => IO[DynamoRecord[NewTypeLeft]],
+      transformRight: DynamoRecord[OldTypeRight] => IO[DynamoRecord[NewTypeRight]]
   ): IO[Unit] = for {
     role <- getRole()
 
