@@ -2,7 +2,13 @@ package fs2.aggregations.join.dynamo.migrations
 
 import cats.effect.IO
 import fs2.aggregations.join.models.dynamo.DynamoRecord
-import fs2.aggregations.join.models.dynamo.migration.{DynamoInPlaceMigrationConfig, LockRow, Migrator, MigratorRole, Waiter}
+import fs2.aggregations.join.models.dynamo.migration.{
+  DynamoInPlaceMigrationConfig,
+  LockRow,
+  Migrator,
+  MigratorRole,
+  Waiter
+}
 import meteor.{Client, DynamoDbType, Expression, KeyDef}
 import meteor.api.hi.CompositeTable
 import meteor.errors.ConditionalCheckFailed
@@ -110,21 +116,42 @@ class DistributedDynamoJoinerInPlaceMigration[
   }
 
   private def performMigration(
-      transformLeft: (DynamoRecord[OldTypeLeft]) => IO[DynamoRecord[NewTypeLeft]],
-      transformRight: (DynamoRecord[OldTypeRight]) => IO[DynamoRecord[NewTypeRight]]
+      transformLeft: (
+          DynamoRecord[OldTypeLeft]
+      ) => IO[DynamoRecord[NewTypeLeft]],
+      transformRight: (
+          DynamoRecord[OldTypeRight]
+      ) => IO[DynamoRecord[NewTypeRight]]
   ): IO[Unit] = {
 
-    val oldRecordDecoder = DynamoRecord.eitherDecoder(config.oldLeftCodec, config.oldRightCodec)
+    val oldRecordDecoder =
+      DynamoRecord.eitherDecoder(config.oldLeftCodec, config.oldRightCodec)
 
-    implicit val newLeftEncoder = DynamoRecord.dynamoRecordEncoder(config.newLeftCodec)
-    implicit val newRightEncoder = DynamoRecord.dynamoRecordEncoder(config.newRightCodec)
+    implicit val newLeftEncoder =
+      DynamoRecord.dynamoRecordEncoder(config.newLeftCodec)
+    implicit val newRightEncoder =
+      DynamoRecord.dynamoRecordEncoder(config.newRightCodec)
 
     val migrateStream = for {
       _ <- Stream.eval(IO.println("Starting migration"))
-      item <- client.scan[Either[DynamoRecord[OldTypeLeft], DynamoRecord[OldTypeRight]]](config.oldTableName, true, 14)(oldRecordDecoder)
+      item <-
+        client
+          .scan[Either[DynamoRecord[OldTypeLeft], DynamoRecord[OldTypeRight]]](
+            config.oldTableName,
+            true,
+            14
+          )(oldRecordDecoder)
+          .attempt
+          .flatMap({
+            case Left(err) => Stream.eval(IO.println(s"error $err")) >> Stream.empty
+            case Right(x)  => Stream.emit(x)
+          })
+
       _ <- item match {
-        case Left(oldTypeLeft) => Stream.eval(transformLeft(oldTypeLeft).flatMap(newTable.put(_)))
-        case Right(oldRightType) => Stream.eval(transformRight(oldRightType).flatMap(newTable.put(_)))
+        case Left(oldTypeLeft) =>
+          Stream.eval(transformLeft(oldTypeLeft).flatMap(newTable.put(_)))
+        case Right(oldRightType) =>
+          Stream.eval(transformRight(oldRightType).flatMap(newTable.put(_)))
       }
 
     } yield {}
@@ -134,7 +161,9 @@ class DistributedDynamoJoinerInPlaceMigration[
 
   def migrateInPlace(
       transformLeft: DynamoRecord[OldTypeLeft] => IO[DynamoRecord[NewTypeLeft]],
-      transformRight: DynamoRecord[OldTypeRight] => IO[DynamoRecord[NewTypeRight]]
+      transformRight: DynamoRecord[OldTypeRight] => IO[
+        DynamoRecord[NewTypeRight]
+      ]
   ): IO[Unit] = for {
     role <- getRole()
 

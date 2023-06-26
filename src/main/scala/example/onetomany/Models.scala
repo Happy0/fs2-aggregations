@@ -4,7 +4,6 @@ import dynosaur.AttributeValue
 import meteor.codec.{Decoder, Encoder}
 import meteor.errors
 import meteor.syntax._
-
 case class User(userId: String, name: String)
 case class Hing(userId: String, hingId: String, hing: String)
 case class UserHing(userId: String, userName: String, hing: String)

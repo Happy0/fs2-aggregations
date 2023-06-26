@@ -90,9 +90,11 @@ object Main extends IOApp {
       appStream <- joinedUsersAndHingStream(joiner)
         .processJoin(
           joinedStream =>
-            joinedStream.map { case (user, hing) =>
-              UserHing(user.userId, user.name, hing.hing)
-            },
+            joinedStream
+              .map { case (user, hing) =>
+                UserHing(user.userId, user.name, hing.hing)
+              }
+              .evalMap(x => IO.println(x)),
           commitBatchWithin(100, 2.seconds)
         )
     } yield { appStream }
