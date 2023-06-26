@@ -125,7 +125,7 @@ class DistributedDynamoJoinerInPlaceMigration[
   ): IO[Unit] = {
 
     val oldRecordDecoder =
-      DynamoRecord.eitherDecoder(config.oldLeftCodec, config.oldRightCodec)
+      DynamoRecord.eitherDecoder[OldTypeLeft, OldTypeRight](config.oldLeftCodec, config.oldRightCodec)
 
     implicit val newLeftEncoder =
       DynamoRecord.dynamoRecordEncoder(config.newLeftCodec)
@@ -139,7 +139,7 @@ class DistributedDynamoJoinerInPlaceMigration[
           .scan[Either[DynamoRecord[OldTypeLeft], DynamoRecord[OldTypeRight]]](
             config.oldTableName,
             true,
-            14
+            1
           )(oldRecordDecoder)
           .attempt
           .flatMap({
@@ -156,7 +156,7 @@ class DistributedDynamoJoinerInPlaceMigration[
 
     } yield {}
 
-    migrateStream.compile.drain
+    migrateStream.compile.drain.void.flatMap(x => markMigrationCompleted())
   }
 
   def migrateInPlace(

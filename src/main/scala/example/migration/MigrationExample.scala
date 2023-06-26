@@ -105,13 +105,14 @@ object MigrationExample extends IOApp {
 
     val streamApp = for {
       _ <- Stream.eval(doMigration())
+
       producer <- KafkaProducer.stream(producerSettings)
       consumer <- KafkaConsumer
         .stream(consumerSettings)
 
       joiner = buildDistributedDynamoJoiner(producer, consumer)
 
-      joinedResult <- userStream
+      _ <- userStream
         .joinOneToMany(
           hingStream,
           joiner,
@@ -127,14 +128,13 @@ object MigrationExample extends IOApp {
           stream =>
             stream.map { case (user, hing) =>
               UserHingV2(user.userId, user.name, hing.hing, user.displayPicture)
-            },
+            }.evalMap(x => IO.println(x)),
           commitBatchWithin(100, 2.seconds)
         )
 
-    } yield (joinedResult)
+    } yield ()
 
     streamApp
-      .evalMap(x => IO.println(x))
       .compile
       .drain
       .void
