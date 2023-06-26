@@ -149,9 +149,9 @@ class DistributedDynamoJoinerInPlaceMigration[
 
       _ <- item match {
         case Left(oldTypeLeft) =>
-          Stream.eval(transformLeft(oldTypeLeft).flatMap(newTable.put(_)))
+          Stream.eval(transformLeft(oldTypeLeft).flatMap(x => newTable.update(x)(newLeftEncoder)))
         case Right(oldRightType) =>
-          Stream.eval(transformRight(oldRightType).flatMap(newTable.put(_)))
+          Stream.eval(transformRight(oldRightType).flatMap(y => newTable.put(y)(newRightEncoder)))
       }
 
     } yield {}
