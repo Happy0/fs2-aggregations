@@ -5,13 +5,9 @@ import cats.effect.{Async, ExitCode, IO, IOApp}
 import fs2.Stream
 import fs2.aggregations.join.dynamo.DistributedDynamoJoiner
 import fs2.aggregations.join.extensions.Fs2StreamJoinerExtensions.FS2StreamJoinMethods
-import fs2.aggregations.join.extensions.dynamo.DistributedDynamoJoinerExtensions.DistributedDynamoJoinerMethods
+import fs2.aggregations.join.extensions.dynamo.DistributedDynamoJoinerExtensions.{DistributedDynamoJoinerMethods, WithCommitPipeMethod}
 import fs2.aggregations.join.models.dynamo.config.DynamoStoreConfig
-import fs2.aggregations.join.models.{
-  JoinRecord,
-  JoinedResult,
-  OneToManyJoinConfig
-}
+import fs2.aggregations.join.models.{JoinRecord, JoinedResult, OneToManyJoinConfig}
 import fs2.kafka._
 import meteor.codec.{Codec, Decoder, Encoder}
 import meteor.errors
@@ -88,14 +84,13 @@ object Main extends IOApp {
       joiner = buildDistributedDynamoJoiner(producer, consumer)
 
       appStream <- joinedUsersAndHingStream(joiner)
-        .processJoin(
-          joinedStream =>
-            joinedStream
-              .map { case (user, hing) =>
-                UserHing(user.userId, user.name, hing.hing)
-              }
-              .evalMap(x => IO.println(x)),
-          commitBatchWithin(100, 2.seconds)
+        .withCommitPipe(commitBatchWithin(100, 2.seconds))
+        .processJoin(joinedStream =>
+          joinedStream
+            .map { case (user, hing) =>
+              UserHing(user.userId, user.name, hing.hing)
+            }
+            .evalMap(x => IO.println(x))
         )
     } yield { appStream }
 
