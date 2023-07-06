@@ -4,9 +4,12 @@ import cats.effect.IO
 import fs2.aggregations.join.models.dynamo.DynamoRecord
 import fs2.aggregations.join.models.dynamo.migration.{
   DynamoInPlaceMigrationConfig,
+  DynamoJoinRow,
+  DynamoMigrationRow,
   LockRow,
   Migrator,
   MigratorRole,
+  UnrecognisedRow,
   Waiter
 }
 import meteor.{Client, DynamoDbType, Expression, KeyDef}
@@ -125,7 +128,13 @@ class DistributedDynamoJoinerInPlaceMigration[
   ): IO[Unit] = {
 
     val oldRecordDecoder =
-      DynamoRecord.eitherDecoder[OldTypeLeft, OldTypeRight](config.oldLeftCodec, config.oldRightCodec)
+      DynamoRecord.eitherDecoder[OldTypeLeft, OldTypeRight](
+        config.oldLeftCodec,
+        config.oldRightCodec
+      )
+
+    implicit val migrationRowDecoder =
+      DynamoMigrationRow.getDecoder(config.oldLeftCodec, config.oldRightCodec)
 
     implicit val newLeftEncoder =
       DynamoRecord.dynamoRecordEncoder(config.newLeftCodec)
@@ -136,22 +145,34 @@ class DistributedDynamoJoinerInPlaceMigration[
       _ <- Stream.eval(IO.println("Starting migration"))
       item <-
         client
-          .scan[Either[DynamoRecord[OldTypeLeft], DynamoRecord[OldTypeRight]]](
+          .scan[DynamoMigrationRow[OldTypeLeft, OldTypeRight]](
             config.oldTableName,
             true,
             1
-          )(oldRecordDecoder)
+          )
           .attempt
           .flatMap({
-            case Left(err) => Stream.eval(IO.println(s"error $err")) >> Stream.empty
+            case Left(err) => Stream.empty
             case Right(x)  => Stream.emit(x)
           })
 
       _ <- item match {
-        case Left(oldTypeLeft) =>
-          Stream.eval(transformLeft(oldTypeLeft).flatMap(x => newTable.update(x)(newLeftEncoder)))
-        case Right(oldRightType) =>
-          Stream.eval(transformRight(oldRightType).flatMap(y => newTable.put(y)(newRightEncoder)))
+        case UnrecognisedRow() => Stream.eval(IO.println("Unrecognised row"))
+        case x: DynamoJoinRow[OldTypeLeft, OldTypeRight] =>
+          x.row match {
+            case Left(leftValue) =>
+              Stream.eval(
+                transformLeft(leftValue).flatMap(y =>
+                  IO.println(s"Putting $y") >> newTable.put(y)(newLeftEncoder)
+                )
+              )
+            case Right(rightValue) =>
+              Stream.eval(
+                transformRight(rightValue).flatMap(y =>
+                  IO.println(s"Putting $y") >> newTable.put(y)(newRightEncoder)
+                )
+              )
+          }
       }
 
     } yield {}

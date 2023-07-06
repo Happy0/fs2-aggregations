@@ -2,7 +2,7 @@ package example.migration
 
 import cats.effect.{ExitCode, IO, IOApp}
 import example.onetomany.{Hing, User}
-import example.migration.ExampleData
+import fs2.aggregations.join.extensions.dynamo.DistributedDynamoJoinerExtensions.{DistributedDynamoJoinerMethods, WithCommitPipeMethod}
 import fs2.aggregations.join.dynamo.migrations.DistributedDynamoJoinerInPlaceMigration
 import fs2.aggregations.join.models.dynamo.DynamoRecord
 import fs2.aggregations.join.models.dynamo.migration.DynamoInPlaceMigrationConfig
@@ -124,12 +124,12 @@ object MigrationExample extends IOApp {
             commitStoreRight = (x) => x
           )
         )
+        .withCommitPipe(commitBatchWithin(100, 2.seconds))
         .processJoin(
           stream =>
             stream.map { case (user, hing) =>
               UserHingV2(user.userId, user.name, hing.hing, user.displayPicture)
-            }.evalMap(x => IO.println(x)),
-          commitBatchWithin(100, 2.seconds)
+            }.evalMap(x => IO.println(x))
         )
 
     } yield ()
