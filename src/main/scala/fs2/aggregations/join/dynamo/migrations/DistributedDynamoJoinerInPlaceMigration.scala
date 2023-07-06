@@ -150,11 +150,6 @@ class DistributedDynamoJoinerInPlaceMigration[
             true,
             1
           )
-          .attempt
-          .flatMap({
-            case Left(err) => Stream.empty
-            case Right(x)  => Stream.emit(x)
-          })
 
       _ <- item match {
         case UnrecognisedRow() => Stream.eval(IO.println("Unrecognised row"))
